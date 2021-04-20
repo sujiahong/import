@@ -8,20 +8,33 @@ namespace su{
 
 struct EdgeNode
 {
+    struct EdgeNode* next_node;
     int data;
     unsigned int weight;
-    struct EdgeNode* next_node;
 };
 
 typedef struct Vertex
 {
     struct EdgeNode* next_node;
     int data;   ///////顶点数据域  类型模板
+    
+    Vertex()
+    {
+        next_node = NULL;
+    }
+    ~Vertex()
+    {}
+
+    bool operator<(const struct Vertex& vex) const
+    {
+        return data < vex.data;
+    }
 }VERTEX;
 
+//template<typename T>
 class Graph
 {
-    std::unordered_set<VERTEX> vtx_set;
+    std::unordered_set<VERTEX> m_vtx_set;
 public:
     Graph();
     ~Graph();
@@ -42,21 +55,67 @@ public:
     ////邻接顶点表
     int adjacent_vertex_list();
 
+    int get_vertex_edge_list(int data, std::vector<int> a_vec);
+
+    unsigned int get_vertex_edge_num();
+
 private:
 
+    
 };
 
 Graph::Graph()
 {}
+
 Graph::~Graph()
 {}
 
 int Graph::init()
 {
-
+    clear();
 }
 
 int Graph::clear()
+{
+    for (auto itor = m_vtx_set.begin(); itor != m_vtx_set.end(); ++itor)
+    {
+        if (itor->next_node != NULL)
+        {
+            struct EdgeNode* cur_ptr = itor->next_node;
+            struct EdgeNode* del_ptr = NULL;
+            while (cur_ptr != NULL)
+            {
+                del_ptr = cur_ptr;
+                cur_ptr = cur_ptr->next_node;
+                delete del_ptr;
+                del_ptr = NULL;
+            }
+        }
+    }
+    m_vtx_set.clear();
+}
+
+int Graph::insert_vertex(int data)
+{
+
+}
+
+int Graph::insert_edge(int from_data, int to_data)
+{
+
+}
+
+int Graph::remove_vertex(int data)
+{
+
+}
+
+int Graph::remove_edge(int from_data, int to_data)
+{
+
+}
+
+int Graph::adjacent_vertex_list()
 {
 
 }
