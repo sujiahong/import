@@ -79,11 +79,68 @@ void GetLoopSetData(std::set<T> &a_containor, T& a_start, std::vector<T> &a_out_
     }
 }
 
-// template <typename T> //////////////T 只支持简单类型，不支持组合类型
-// void GetLoopSetData(std::set<T> &a_containor, T& a_start, std::vector<T> &a_out_vec, const unsigned int a_limit_num, std::function<bool(const T&)> a_condition_func)
-// {
-
-// }
+template <typename T> //////////////T 只支持简单类型，不支持组合类型
+void GetLoopSetData(std::set<T> &a_containor, T& a_start, std::vector<T> &a_out_vec, const unsigned int a_limit_num, std::function<bool(const T&)> a_condition_func)
+{
+    if (a_containor.size() <= 0)
+    {
+        return;
+    }
+    typename std::set<T>::iterator itor = a_containor.begin();
+    itor = a_containor.find(a_start);
+    if (itor == a_containor.end())
+    {
+        itor = a_containor.begin();
+    }
+    while (1)
+    {
+        if (a_condition_func && a_condition_func(*itor))
+        {
+            ++itor;
+            if (itor == a_containor.end())
+            {
+                itor = a_containor.begin();
+                if (a_out_vec.size() > 0)
+                {
+                    if (a_out_vec[0] == *itor)
+                    {
+                        a_start = *itor;
+                        break;
+                    }
+                    else
+                        continue;
+                }
+                else
+                {
+                    break; //////一个都没有
+                }
+            }
+            continue;
+        }
+        if (a_out_vec.size() > 0 && a_out_vec[0] == *itor)
+        {
+            a_start = *itor;
+            break;
+        }
+        a_out_vec.push_back(*itor);
+        if (a_out_vec.size() >= a_limit_num)
+        {
+            ++itor;
+            if (itor == a_containor.end())
+                itor = a_containor.begin();
+            a_start = *itor;
+            break;
+        }
+        ++itor;
+        if (itor == a_containor.end())
+            itor = a_containor.begin();
+        if (a_out_vec.size() > 0 && a_out_vec[0] == *itor)
+        {
+            a_start = *itor;
+            break;
+        }
+    }
+}
 
 /*
 a_container   [in] 数据容器

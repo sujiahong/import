@@ -13,7 +13,7 @@ bool condition_func(const int& val)
     return (val == 3);
 }
 
-int main1(int argc, char** argv)
+int main(int argc, char** argv)
 {
     std::set<int> set;
     set.insert(1);
@@ -45,6 +45,9 @@ int main1(int argc, char** argv)
     vec_con.push_back(4);
     vec_con.push_back(5);
 
+    // auto func = [](const int& val)->bool{
+    //     return (val == 4);
+    // };
     unsigned int subpt = 0;
     for (int s = 0; s < 5; ++s)
     {
@@ -60,7 +63,7 @@ int main1(int argc, char** argv)
     return 0;
 }
 
-int main(int argc, char** argv)
+int main2(int argc, char** argv)
 {
     const std::string& str = "7384738";
 

@@ -1,6 +1,6 @@
 
-#ifndef _STRING_FUNCTION_HPP_H
-#define _STRING_FUNCTION_HPP_H
+#ifndef _STRING_FUNCTION_HPP_
+#define _STRING_FUNCTION_HPP_
 
 #include <string>
 #include <vector>
