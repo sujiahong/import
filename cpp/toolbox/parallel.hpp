@@ -7,7 +7,7 @@
 namespace su
 {
 /////异步执行，保证主线程不会提前结束
-int AsyncExecute(void* (*a_func)(void*) , void* a_arg)
+static int AsyncExecute(void* (*a_func)(void*) , void* a_arg)
 {
     int ret = 0;
     if (a_func == NULL)
@@ -28,7 +28,7 @@ int AsyncExecute(void* (*a_func)(void*) , void* a_arg)
 
 
 /////同步执行
-int SyncExecute(void* (*a_func)(void*) , void* a_arg)
+static int SyncExecute(void* (*a_func)(void*) , void* a_arg)
 {
     int ret = 0;
     if (a_func == NULL)

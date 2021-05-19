@@ -6,6 +6,12 @@ namespace su
 template<typename T>
 class Circle
 {
+private:
+
+public:
+
+
+private:
 
 };
 
