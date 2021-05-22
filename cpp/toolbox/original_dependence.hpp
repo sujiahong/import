@@ -12,8 +12,8 @@ protected:
     Noncopyable(){};
     ~Noncopyable(){};
 private:
-    Noncopyable(const Noncopyable&){};
-    const Noncopyable& operator=(const Noncopyable&){};
+    Noncopyable(const Noncopyable&);
+    const Noncopyable& operator=(const Noncopyable&);
 };
 
 /////继承

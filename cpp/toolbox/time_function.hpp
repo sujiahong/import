@@ -10,17 +10,17 @@
 namespace su
 {
 //////返回当前时间戳  秒
-static unsigned long second_time()
+static unsigned long long second_time()
 {
     long int t = time(0);
     if (t != -1)
-        return (unsigned long int)t;
+        return (unsigned long long)t;
     else
         return 0;
 }
 
 //////返回当前时间戳  毫秒
-static unsigned long int milli_time()
+static unsigned long long milli_time()
 {
     struct timeval tv;
     if (gettimeofday(&tv, 0) == 0)
@@ -30,7 +30,7 @@ static unsigned long int milli_time()
 }
 
 //////返回当前时间戳  微秒
-static unsigned long int micro_time()
+static unsigned long long micro_time()
 {
     struct timeval tv;
     if (gettimeofday(&tv, 0) == 0)
@@ -40,7 +40,7 @@ static unsigned long int micro_time()
 }
 
 //////返回当前时间戳  纳秒
-static unsigned long int nano_time()
+static unsigned long long nano_time()
 {
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
@@ -63,7 +63,7 @@ struct tm {  
 };
 */
 ///获取当前时区  小时
-static int get_time_zone(unsigned long a_cur_time=0)
+static int get_time_zone(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
         a_cur_time = second_time();
@@ -77,7 +77,7 @@ static int get_time_zone(unsigned long a_cur_time=0)
 
 ////返回每天零点时间戳 秒 
 /////参数a_cur_time==0时，自动获取当前时间戳零点 东八区
-static unsigned long zero_sec_time(unsigned long a_cur_time=0)
+static unsigned long zero_sec_time(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
         a_cur_time = second_time();

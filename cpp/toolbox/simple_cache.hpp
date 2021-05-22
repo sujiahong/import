@@ -91,6 +91,11 @@ public:
     {
         return m_cache.size();
     }
+
+    void Dump()
+    {
+        
+    }
 };
 
 }
