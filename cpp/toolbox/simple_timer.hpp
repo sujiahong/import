@@ -10,20 +10,29 @@
 #include <unordered_map>
 #include <unistd.h>
 #include <climits>
-#include "thread_lock.hpp"
+#include "../multi_thread/thread_lock.hpp"
 #include "time_function.hpp"
+#include "original_dependence.hpp"
 #include <bl_const/Debug_log.h>
 
 namespace su
 {
 
-typedef void (*FuncPtr)(unsigned long long, unsigned long long);
+typedef void (*FuncPtr)(unsigned long long);
 
 struct TimerItem
 {
     unsigned long long expire_time;
     unsigned long long timer_id;
-    unsigned long long map_id;
+    unsigned int interval;
+    int count;
+    TimerItem()
+    {
+        expire_time = 0;
+        timer_id = 0;
+        interval = 0;
+        count = 0;
+    }
     bool operator < (const TimerItem& a_other) const
     {
         if(expire_time == a_other.expire_time)
@@ -32,7 +41,7 @@ struct TimerItem
     }
 };
 
-class SimpleTimer
+class SimpleTimer: public Noncopyable
 {
 private:
     std::set<struct TimerItem> m_timer_set_;
@@ -56,11 +65,37 @@ private:
             {
                 if (map_itor->second)
                 {
-                    (map_itor->second)(it->timer_id, it->map_id);
+                    (map_itor->second)(it->timer_id);
+                }
+                if (it->count < 0 && it->interval != 0)
+                {
+                    it->expire_time += it->interval;
+                    ++it;
+                    continue;
+                }
+                (it->count)--;
+                if (it->count < 1)
+                {
                     m_timer_handler_map_.erase(map_itor);
+                    m_timer_set_.erase(it++);
+                }
+                else
+                {
+                    it->expire_time += it->interval;
+                    ++it;
                 }
             }
-            m_timer_set_.erase(it++);
+            else
+            {
+                (it->count)--;
+                if (it->count < 1)
+                    m_timer_set_.erase(it++);
+                else
+                {
+                    it->expire_time += it->interval;
+                    ++it;
+                }
+            }
         }
         //m_timer_set_.erase(m_timer_set_.begin(), itor);
     }
@@ -112,24 +147,41 @@ public:
         m_running_ = true;
     }
 
-    inline void RunAt(FuncPtr a_ptr, unsigned long long a_timestamp, unsigned long long a_id, unsigned long long a_map_id)
+    inline unsigned long long RunAt(FuncPtr a_ptr, unsigned long long a_timestamp)
     {
         MUTEX_GUARD(m_timer_mutex_)
-        m_tmp_item_.timer_id = a_id;
+        m_tmp_item_.timer_id = nano_time();
         m_tmp_item_.expire_time = a_timestamp;
-        m_tmp_item_.map_id = a_map_id;
+        m_tmp_item_.interval = 0;
+        m_tmp_item_.count = 0;
         m_timer_set_.insert(m_tmp_item_);
-        m_timer_handler_map_[a_id] = a_ptr;
+        m_timer_handler_map_[m_tmp_item_.timer_id] = a_ptr;
     }
 
-    inline void RunAfter(FuncPtr a_ptr, unsigned long long a_when, unsigned long long a_id)
+    inline unsigned long long RunAfter(FuncPtr a_ptr, unsigned long long a_when)
     {
-
+        RunAt(a_ptr, second_time()+a_when);
     }
 
-    inline void RunEvery(FuncPtr a_ptr, unsigned long long a_interval, unsigned long long a_id)
+    inline unsigned long long RunEvery(FuncPtr a_ptr, unsigned long long a_interval, int a_count = -1)
     {
+        MUTEX_GUARD(m_timer_mutex_)
+        m_tmp_item_.timer_id = nano_time();
+        m_tmp_item_.expire_time = second_time()+a_interval;
+        m_tmp_item_.interval = (unsigned int)a_interval;
+        m_tmp_item_.count = a_count;
+        m_timer_set_.insert(m_tmp_item_);
+        m_timer_handler_map_[m_tmp_item_.timer_id] = a_ptr;
+    }
 
+    inline void SetRepeatCount(unsigned long long a_itmer_id, int a_count)//////设置重复次数 -1 无限循环
+    {
+        MUTEX_GUARD(m_timer_mutex_)
+        std::set<struct TimerItem>::iterator itor = m_timer_set_.find(a_itmer_id);
+        if (itor != m_timer_set_.end())
+        {
+            itor->count = a_count;
+        }
     }
 
     inline void Cancel(unsigned long long a_id)
