@@ -77,7 +77,7 @@ static int get_time_zone(unsigned long long a_cur_time=0)
 
 ////返回每天零点时间戳 秒 
 /////参数a_cur_time==0时，自动获取当前时间戳零点 东八区
-static unsigned long zero_sec_time(unsigned long long a_cur_time=0)
+static unsigned long long zero_sec_time(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
         a_cur_time = second_time();

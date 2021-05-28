@@ -24,15 +24,15 @@ int main(int argc, char** argv)
     s.insert(7);
     s.insert(8);
     std::set<int>::iterator it = s.lower_bound(3);
-    if (it == s.end())
-        std::cout <<" last迭代器"<<std::endl;
-    else
-        std::cout <<" it1="<<*it<<std::endl;
-    it = s.lower_bound(5);
-    if (it == s.end())
-        std::cout <<" last迭代器"<<std::endl;
-    else
-        std::cout <<" it2="<<*it<<std::endl;
+    // if (it == s.end())
+    //     std::cout <<" last迭代器"<<std::endl;
+    // else
+    //     std::cout <<" it1="<<*it<<std::endl;
+    // it = s.lower_bound(5);
+    // if (it == s.end())
+    //     std::cout <<" last迭代器"<<std::endl;
+    // else
+    //     std::cout <<" it2="<<*it<<std::endl;
     it = s.lower_bound(9);
     if (it == s.end())
         std::cout <<" last迭代器"<<std::endl;
