@@ -136,8 +136,7 @@ private:
                 self->FindExpiredAndHandle();
                 //self->HandleExpired(vec);
             }
-            else
-                usleep(10000);
+            usleep(10000);
         }
         return 0;
     }
@@ -175,7 +174,7 @@ public:
         m_running_ = true;
     }
 
-    inline void RunAt(FuncPtr a_ptr, unsigned long long a_timestamp)
+    inline unsigned long long RunAt(FuncPtr a_ptr, unsigned long long a_timestamp)
     {
         MUTEX_GUARD(m_timer_mutex_)
         m_tmp_key_.timer_id = nano_time();
@@ -185,14 +184,15 @@ public:
         m_tmp_val_.count = 0;
         m_tmp_val_.handle_func = a_ptr;
         m_timer_handler_map_[m_tmp_key_.timer_id] = m_tmp_val_;
+        return  m_tmp_key_.timer_id;
     }
 
-    inline void RunAfter(FuncPtr a_ptr, unsigned long long a_when)
+    inline unsigned long long RunAfter(FuncPtr a_ptr, unsigned long long a_when)
     {
-        RunAt(a_ptr, second_time()+a_when);
+        return RunAt(a_ptr, second_time()+a_when);
     }
 
-    inline void RunEvery(FuncPtr a_ptr, unsigned long long a_interval, int a_count = -1)
+    inline unsigned long long RunEvery(FuncPtr a_ptr, unsigned long long a_interval, int a_count = -1)
     {
         MUTEX_GUARD(m_timer_mutex_)
         m_tmp_key_.timer_id = nano_time();
@@ -202,6 +202,7 @@ public:
         m_tmp_val_.count = a_count;
         m_tmp_val_.handle_func = a_ptr;
         m_timer_handler_map_[m_tmp_key_.timer_id] = m_tmp_val_;
+        return  m_tmp_key_.timer_id;
     }
 
     inline void SetRepeatCount(unsigned long long a_itmer_id, int a_count)//////设置重复次数 -1 无限循环
