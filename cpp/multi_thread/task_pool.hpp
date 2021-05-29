@@ -18,7 +18,8 @@ class TaskBase: public Noncopyable
 public:
     TaskBase(){}
     virtual ~TaskBase(){}
-    virtual void RunOnce(unsigned int a_thread_id=0)=0;//////////同步执行
+    virtual void RunOnce(unsigned int a_thread_id=0){}//////////同步执行
+    virtual void RunOnce(unsigned int a_thread_id, unsigned long long a_timer_id){}//////定时器使用，同步执行
     virtual bool ClearStat(){return true;}
 };
 

@@ -53,10 +53,10 @@ private:
                 task_ptr->RunOnce();
                 if (task_ptr->ClearStat())
                 {
+                    std::cout<<" Info: 删除内存 task_ptr="<<task_ptr<<std::endl;
                     delete task_ptr;
                     task_ptr = 0;
                 }
-
             }
         }
         return 0;

@@ -21,8 +21,6 @@
 namespace su
 {
 
-typedef void (*FuncPtr)(unsigned long long);
-
 struct TimerKey
 {
     unsigned long long expire_time;
@@ -44,16 +42,16 @@ class TaskTimer: public TaskBase
 {
 private:
     unsigned long long m_timer_id_;
-    FuncPtr m_func_ptr_;
+    TaskBase* m_task_ptr_;
 public:
-    TaskTimer(unsigned long long a_timer_id, FuncPtr a_func_ptr):m_timer_id_(a_timer_id),m_func_ptr_(a_func_ptr)
+    TaskTimer(unsigned long long a_timer_id, TaskBase* a_task_ptr):m_timer_id_(a_timer_id),m_task_ptr_(a_task_ptr)
     {}
     ~TaskTimer()
     {}
     void RunOnce(unsigned int a_thread_id)//////ron
     {
-        if (m_func_ptr_)
-            m_func_ptr_(m_timer_id_);
+        if (m_task_ptr_)
+            m_task_ptr_->RunOnce(a_thread_id, m_timer_id_);
     }
 };
 
@@ -61,14 +59,15 @@ struct TimerValue
 {
     unsigned int interval;
     int count;
-    FuncPtr handle_func;
+    TaskBase* task_ptr;
     TimerValue()
     {
         interval = 0;
         count = 0;
-        handle_func = 0;
+        task_ptr = 0;
     }
 };
+
 
 class SimpleTimer: public Noncopyable
 {
@@ -101,12 +100,12 @@ private:
                     m_tmp_key_.timer_id = it->timer_id;
                     m_timer_set_.insert(m_tmp_key_);
                     m_timer_set_.erase(*it);
-                    m_pool_.PushTask(new TaskTimer(it->timer_id, map_itor->second.handle_func));
+                    m_pool_.PushTask(new TaskTimer(it->timer_id, map_itor->second.task_ptr));
                     continue;
                 }
                 if (map_itor->second.count < 1)
                 {
-                    m_pool_.PushTask(new TaskTimer(it->timer_id, map_itor->second.handle_func));
+                    m_pool_.PushTask(map_itor->second.task_ptr);
                     m_timer_handler_map_.erase(map_itor);
                     m_timer_set_.erase(*it);
                 }
@@ -117,7 +116,7 @@ private:
                     m_tmp_key_.timer_id = it->timer_id;
                     m_timer_set_.insert(m_tmp_key_);
                     m_timer_set_.erase(*it);
-                    m_pool_.PushTask(new TaskTimer(it->timer_id, map_itor->second.handle_func));
+                    m_pool_.PushTask(new TaskTimer(it->timer_id, map_itor->second.task_ptr));
                 }
             }
             else////////没有处理，删除定时器
@@ -174,7 +173,7 @@ public:
         m_running_ = true;
     }
 
-    inline unsigned long long RunAt(FuncPtr a_ptr, unsigned long long a_timestamp)
+    inline unsigned long long RunAt(TaskBase* a_task_ptr, unsigned long long a_timestamp)
     {
         MUTEX_GUARD(m_timer_mutex_)
         m_tmp_key_.timer_id = nano_time();
@@ -182,17 +181,17 @@ public:
         m_timer_set_.insert(m_tmp_key_);
         m_tmp_val_.interval = 0;
         m_tmp_val_.count = 0;
-        m_tmp_val_.handle_func = a_ptr;
+        m_tmp_val_.task_ptr = a_task_ptr;
         m_timer_handler_map_[m_tmp_key_.timer_id] = m_tmp_val_;
         return  m_tmp_key_.timer_id;
     }
 
-    inline unsigned long long RunAfter(FuncPtr a_ptr, unsigned long long a_when)
+    inline unsigned long long RunAfter(TaskBase* a_task_ptr, unsigned long long a_when)
     {
-        return RunAt(a_ptr, second_time()+a_when);
+        return RunAt(a_task_ptr, second_time()+a_when);
     }
 
-    inline unsigned long long RunEvery(FuncPtr a_ptr, unsigned long long a_interval, int a_count = -1)
+    inline unsigned long long RunEvery(TaskBase* a_task_ptr, unsigned long long a_interval, int a_count = -1)
     {
         MUTEX_GUARD(m_timer_mutex_)
         m_tmp_key_.timer_id = nano_time();
@@ -200,7 +199,7 @@ public:
         m_timer_set_.insert(m_tmp_key_);
         m_tmp_val_.interval = (unsigned int)a_interval;
         m_tmp_val_.count = a_count;
-        m_tmp_val_.handle_func = a_ptr;
+        m_tmp_val_.task_ptr = a_task_ptr;
         m_timer_handler_map_[m_tmp_key_.timer_id] = m_tmp_val_;
         return  m_tmp_key_.timer_id;
     }
