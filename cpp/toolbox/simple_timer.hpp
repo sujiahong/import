@@ -16,7 +16,6 @@
 #include "../multi_thread/task_pool.hpp"
 #include "time_function.hpp"
 #include "original_dependence.hpp"
-//#include <bl_const/Debug_log.h>
 
 namespace su
 {
@@ -51,7 +50,7 @@ public:
     void RunOnce(unsigned int a_thread_id)//////ron
     {
         if (m_task_ptr_)
-            m_task_ptr_->RunOnce(a_thread_id, m_timer_id_);
+            m_task_ptr_->RunOnce(a_thread_id);
     }
 };
 
@@ -68,7 +67,6 @@ struct TimerValue
     }
 };
 
-
 class SimpleTimer: public Noncopyable
 {
 private:
@@ -77,7 +75,7 @@ private:
     struct TimerKey m_tmp_key_;/////////插入，查找临时使用
     struct TimerValue m_tmp_val_;/////////插入，查找临时使用
     mutable LockMutex m_timer_mutex_;
-    bool m_running_;
+    mutable bool m_running_;
     ThreadPool m_pool_;
 private:
     void FindExpiredAndHandle()
@@ -90,7 +88,6 @@ private:
         std::unordered_map<unsigned long long, TimerValue>::iterator map_itor = m_timer_handler_map_.end();
         for (auto it = vec.begin(); it != vec.end();++it)
         {
-            //LOG_TRACE(3, true, "FindExpiredAndHandle ", __LINE__<<" Info: 到期时间 expire_time="<<it->expire_time<<" timer_id="<<it->timer_id<<" now="<<m_tmp_item_.expire_time);
             map_itor = m_timer_handler_map_.find(it->timer_id);
             if (map_itor != m_timer_handler_map_.end())
             {
@@ -103,9 +100,12 @@ private:
                     m_pool_.PushTask(new TaskTimer(it->timer_id, map_itor->second.task_ptr));
                     continue;
                 }
+                // LOG_TRACE(3, true, "FindExpiredAndHandle ", __LINE__<<" Info: task_ptr="<<map_itor->second.task_ptr<<" timer_id="<<it->timer_id
+                //     <<" count="<<map_itor->second.interval<<" interval="<<map_itor->second.interval);
                 if (map_itor->second.count < 1)
                 {
                     m_pool_.PushTask(map_itor->second.task_ptr);
+                    map_itor->second.task_ptr = 0;
                     m_timer_handler_map_.erase(map_itor);
                     m_timer_set_.erase(*it);
                 }
@@ -135,13 +135,13 @@ private:
                 self->FindExpiredAndHandle();
                 //self->HandleExpired(vec);
             }
-            usleep(10000);
+            usleep(100000);
         }
         return 0;
     }
 
 public:
-    SimpleTimer()
+    SimpleTimer():m_pool_()
     {
         int ret = 0;
         pthread_t tid = 0;
@@ -219,7 +219,11 @@ public:
         MUTEX_GUARD(m_timer_mutex_)
         std::unordered_map<unsigned long long, TimerValue>::iterator map_itor = m_timer_handler_map_.find(a_id);
         if (map_itor != m_timer_handler_map_.end())
+        {
+            if (map_itor->second.task_ptr)
+                delete map_itor->second.task_ptr;
             m_timer_handler_map_.erase(map_itor);
+        }
     }
 
 };

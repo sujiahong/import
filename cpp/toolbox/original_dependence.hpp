@@ -146,6 +146,13 @@ private:
     const Noncopyable& operator=(const Noncopyable&);
 };
 
+class Copyable
+{
+protected:
+    Copyable(){};
+    ~Copyable(){};
+};
+
 /////继承
 template<typename T>
 class OnlyOneInstance
