@@ -37,6 +37,7 @@ class Graph
     std::unordered_set<VERTEX> m_vtx_set;
 public:
     Graph();
+    Graph(unsigned int a_node_num);
     ~Graph();
 
 public:
@@ -67,6 +68,9 @@ private:
 Graph::Graph()
 {}
 
+Graph::Graph(unsigned int a_node_num):m_vtx_set(a_node_num)
+{}
+
 Graph::~Graph()
 {}
 
@@ -95,9 +99,11 @@ int Graph::clear()
     m_vtx_set.clear();
 }
 
-int Graph::insert_vertex(int data)
+int Graph::insert_vertex(int a_data)
 {
-
+    VERTEX node;
+    node.data = a_data;
+    m_vtx_set.insert(node);
 }
 
 int Graph::insert_edge(int from_data, int to_data)

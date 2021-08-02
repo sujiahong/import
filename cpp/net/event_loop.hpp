@@ -20,7 +20,6 @@ public:
     {}
     ~EventLoop();
     {
-
     }
 public:
     void Loop()
@@ -32,6 +31,8 @@ public:
     {
         return (m_thread_id_ == pthread_self());
     }
+    void AssertInLoopThread()
+    {} 
 };
 
 __thread EventLoop* t_loopInThisThread = NULL;
