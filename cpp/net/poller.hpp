@@ -18,6 +18,8 @@ class PollerBase: Noncopyable
 private:
     EventLoop* m_owner_loop_;
     std::unordered_map<int, Channel*> m_channels_;
+
+    typedef std::unordered_map<int, Channel*> ChannelMapType;
 public:
     PollerBase(EventLoop* a_loop_ptr)
     {
@@ -32,6 +34,7 @@ public:
     virtual unsigned long long Poll(int a_timeout, std::vector<Channel*>& a_active_channels)=0;
     virtual void UpdateChannel(Channel* a_channel)=0;
     //virtual void RemoveChannel(Channel* a_channel)=0;
+    virtual bool IsHaveChannel(Channel* a_channel) const;
 };
 
 class Poll: public PollerBase
