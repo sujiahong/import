@@ -4,11 +4,11 @@
 
 struct SkiplistNode
 {
-    robj* obj;
+    //robj* obj;
     double score;
-    struct SkiplistNode*backward;
+    struct SkiplistNode* next;
     struct SkiplistLevel {
-        struct SkiplistNode* forward;
+        struct SkiplistNode* pre;
         unsigned int span;
     } level[];
 };
@@ -18,6 +18,16 @@ struct Skiplist
     struct SkiplistNode* head, *tail;
     unsigned long length;
     int level;
+public:
+    Skiplist();
+    ~Skiplist();
+
+public:
+    SkiplistNode* insert();
+    SkiplistNode* find();
+    SkiplistNode* erase();
+
+    void dump();
 };
 
 
