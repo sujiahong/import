@@ -3,22 +3,17 @@
 
 #include "../algorithm/ramdom_disorder.hpp"
 
-#define MAX_LEVEL 5
-
-struct RObj
-{
-    
-};
+#define MAX_LEVEL 8
 
 struct SkiplistNode
 {
     unsigned int value;
     double score;
-    struct SkiplistNode* next;
+    struct SkiplistNode* prev;
     struct SkiplistLevel {
-        struct SkiplistNode* pre;
+        struct SkiplistNode* next;
         unsigned int span;
-    } level[];
+    } level_arr[MAX_LEVEL];
 };
 
 int GetRandomLevel()
@@ -28,12 +23,12 @@ int GetRandomLevel()
     {
         ++lev;
     }
-    return lev > MAX_LEVEL ? MAX_LEVEL : lev;
+    return lev < MAX_LEVEL ? lev : MAX_LEVEL;
 }
 
 class Skiplist
 {
-    struct SkiplistNode* head, *tail;
+    struct SkiplistNode* head;
     unsigned long length;
     int level;
 public:
@@ -41,12 +36,27 @@ public:
     ~Skiplist();
 
 public:
-    SkiplistNode* insert(unsigned int a_value, double a_score);
-    SkiplistNode* find(unsigned int a_value);
-    SkiplistNode* erase(unsigned int a_value);
+    SkiplistNode* Insert(unsigned int a_value, double a_score);
+    SkiplistNode* Find(double a_score);
+    SkiplistNode* Erase(double a_score);
 
     void dump();
 };
 
+
+SkiplistNode* Skiplist::Insert(unsigned int a_value, double a_score)
+{
+
+}
+
+SkiplistNode* Skiplist::Find(double a_score)
+{
+
+}
+
+SkiplistNode* Skiplist::Erase(double a_score)
+{
+
+}
 
 #endif
