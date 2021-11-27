@@ -45,6 +45,25 @@ void split(const std::string& a_str, const std::string& a_delim, std::vector<T>&
     a_vec.push_back(string_to_number<T>(a_str.substr(pos1)));
 }
 
+template<typename KeyT, typename ValueT>
+std::string map_to_string(const std::map<KeyT,ValueT>& a_map, const std::string a_map_split= ",", const std::string a_pair_split = ":")
+{
+    std::stringstream ss;
+    typename std::map<KeyT, ValueT>::const_iterator iter = a_map.begin();
+    for(; iter != a_map.end(); ++iter)
+    {
+        if(iter != a_map.begin())
+        {
+            ss << a_map_split;
+        }
+        ss << iter->first;
+        ss << a_pair_split;
+        ss << iter->second;
+    }
+    return ss.str();
+}
+
+
 }
 
 

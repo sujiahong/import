@@ -30,7 +30,7 @@ class Skiplist
 {
     struct SkiplistNode* head;
     unsigned long length;
-    int level;
+    int layer_level;
 public:
     Skiplist();
     ~Skiplist();
@@ -46,7 +46,7 @@ public:
 
 SkiplistNode* Skiplist::Insert(unsigned int a_value, double a_score)
 {
-
+    
 }
 
 SkiplistNode* Skiplist::Find(double a_score)
