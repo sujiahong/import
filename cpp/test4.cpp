@@ -3,6 +3,7 @@
 #include <vector>
 #include <iostream>
 #include <unistd.h>
+#include "./toolbox/util.hpp"
 
 
 // class TestSig:public su::OnlyOneInstance<TestSig>
@@ -38,5 +39,7 @@ int main(int argc, char** argv)
         std::cout <<" last迭代器"<<std::endl;
     else
         std::cout <<" it3="<<*it<<std::endl;
+    double d = su::sqrt_v2(2345.0);
+    std::cout<<" 平方根="<<d<<std::endl;
     return 0;
 }

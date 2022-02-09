@@ -28,9 +28,9 @@ int GetRandomLevel()
 
 class Skiplist
 {
-    struct SkiplistNode* head;
-    unsigned long length;
-    int layer_level;
+    struct SkiplistNode* m_head_;
+    unsigned long m_length_;    ////链表长度
+    int m_layer_level_;        /////层数
 public:
     Skiplist();
     ~Skiplist();
@@ -43,20 +43,32 @@ public:
     void dump();
 };
 
+Skiplist::Skiplist()
+{
+    m_head_ = new SkiplistNode();
+    m_length_ = 0;
+    m_layer_level_ = 0;
+}
+
+Skiplist::~Skiplist()
+{
+
+}
+
 
 SkiplistNode* Skiplist::Insert(unsigned int a_value, double a_score)
 {
-    
+    return 0;
 }
 
 SkiplistNode* Skiplist::Find(double a_score)
 {
-
+    return 0;
 }
 
 SkiplistNode* Skiplist::Erase(double a_score)
 {
-
+    return 0;
 }
 
 #endif
