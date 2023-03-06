@@ -7,12 +7,11 @@ import (
 )
 
 func GetLogFileLine() string {
-	f, name, line, ok := runtime.Caller(1)
+	pc, name, line, ok := runtime.Caller(1)
 	if !ok {
 		return ""
 	}
-	fun := runtime.FuncForPC(f)
-	//fmt.Println(fun.Name(), filepath.Base(name), line, ok)
+	fun := runtime.FuncForPC(pc)
 	return fmt.Sprintf("%s %d %s", filepath.Base(name), line, filepath.Base(fun.Name()))
 }
 
