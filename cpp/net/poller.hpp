@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <sys/epoll.h>
 
 #include "../toolbox/original_dependence.hpp"
 #include "event_loop.hpp"
@@ -78,7 +79,6 @@ EPOLLET： 将EPOLL设为边缘触发(Edge Triggered)模式，这是相对于水
 
 EPOLLONESHOT：只监听一次事件，当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里
 */
-
 class EPoll: PollerBase
 {
 private:

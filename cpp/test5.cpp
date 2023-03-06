@@ -26,7 +26,7 @@ unsigned long long uuid(pid_t a_pid, pid_t a_tid)
         return 0;
     // unsigned long long pd = a_pid<<16;
     // unsigned long long td = a_tid;
-    // pd = (pd | td)<<32;
+    // pd = (pd | td)<<32;              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
     unsigned long long r = 0;
     unsigned long long time = ts.tv_sec*1000000000+ts.tv_nsec;
     MUTEX_GUARD(last_time_mutex);
