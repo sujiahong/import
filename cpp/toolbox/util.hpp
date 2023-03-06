@@ -1,6 +1,7 @@
 #ifndef _UTIL_HPP_
 #define _UTIL_HPP_
 
+#include <math>
 
 namespace su{
     ////////平方根，，只能float  double有问题
@@ -24,6 +25,23 @@ namespace su{
         tmp = tmp*(1.5f - half*tmp*tmp);
         tmp = tmp*(1.5f - half*tmp*tmp);
         return a_n*tmp;
+    }
+    long double2int64(double original)
+    {
+	    long temp = static_cast<long>(original);
+	    double ferror = original - static_cast<double>(temp);
+	    if (0.99 < fabs(ferror))
+	    {
+	    	if (0 < ferror)
+	    	{
+	    		temp++;
+	    	}
+	    	else
+	    	{
+	    		temp--;
+	    	}
+	    }
+	    return temp;
     }
 }
 
