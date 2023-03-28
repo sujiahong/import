@@ -158,7 +158,7 @@ std::string set_to_string(const std::set<T>& obj_set, int max_disp_count = 5) {
 }
 
 template<class T>
-std::string ObjToString(const T& obj)
+std::string object_to_string(const T& obj)/////这个怎么实现
 {
     return "";
 }
