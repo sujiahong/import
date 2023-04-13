@@ -13,7 +13,7 @@ namespace su
 {
 //////number为整数，浮点数
 template<typename T>
-T string_to_number(const std::string& a_str)
+T String2Number(const std::string& a_str)
 {
     std::stringstream ss;
     ss<<a_str;
@@ -23,7 +23,7 @@ T string_to_number(const std::string& a_str)
 }
 
 template<typename T>
-std::string number_to_string(T a_n)
+std::string Number2String(T a_n)
 {
     std::stringstream ss;
     ss<<a_n;
@@ -32,24 +32,39 @@ std::string number_to_string(T a_n)
 
 ////字符串切割
 template<typename T>
-void split(const std::string& a_str, const std::string& a_delim, std::vector<T>& a_vec)
+void Split(const std::string& a_str, const std::string& a_delim, std::vector<T>& a_vec)
 {
   std::string::size_type pos1, pos2;
   pos2 = a_str.find(a_delim);
   pos1 = 0;
   while(std::string::npos != pos2)
   {
-    a_vec.push_back(string_to_number<T>(a_str.substr(pos1, pos2-pos1)));
+    a_vec.push_back(String2Number<T>(a_str.substr(pos1, pos2-pos1)));
  
     pos1 = pos2 + a_delim.size();
     pos2 = a_str.find(a_delim, pos1);
   }
   if(pos1 != a_str.length())
-    a_vec.push_back(string_to_number<T>(a_str.substr(pos1)));
+    a_vec.push_back(String2Number<T>(a_str.substr(pos1)));
+}
+template<typename KT, typename VT>
+void SplitToMap(const std::string& a_str, const std::string& a_d1, const std::string& a_d2, std::map<KT, VT>& a_map)
+{
+    std::vector<std::string> vec;
+    Split(a_str, a_d1, vec);
+    std::string::size_type pos;
+    std::string key, val;
+    for (unsigned int i = 0; i < vec.size(); ++i)
+    {
+        pos = vec[i].find(a_d2);
+        key = vec[i].substr(0, pos);
+        val = vec[i].substr(pos+a_d2.size());
+        a_map.insert(std::make_pair(String2Number<KT>(key), String2Number<VT>(val)));
+    }
 }
 
 template<class K, class V>
-std::string map_To_string(const std::map<K, V>& obj_msp, int max_disp_count = 5) {
+std::string Map2String(const std::map<K, V>& obj_msp, int max_disp_count = 5) {
     std::ostringstream oss;
     oss << "{";
     int i = 0;
@@ -72,7 +87,7 @@ std::string map_To_string(const std::map<K, V>& obj_msp, int max_disp_count = 5)
     return oss.str();
 }
 template<typename KeyT, typename ValueT>
-std::string map_to_string(const std::map<KeyT,ValueT>& a_map, const std::string a_map_split= ",", const std::string a_pair_split = ":")
+std::string Map2String(const std::map<KeyT,ValueT>& a_map, const std::string a_map_split= ",", const std::string a_pair_split = ":")
 {
     std::stringstream ss;
     typename std::map<KeyT, ValueT>::const_iterator iter = a_map.begin();
@@ -90,7 +105,7 @@ std::string map_to_string(const std::map<KeyT,ValueT>& a_map, const std::string 
 }
 
 template<class T>
-std::string vec_to_string(const std::vector<T>& obj_vec, int max_disp_count = 5) {
+std::string Vec2String(const std::vector<T>& obj_vec, int max_disp_count = 5) {
     std::ostringstream oss;
     oss << "[";
     for (int i = 0; i < obj_vec.size(); i++) {
@@ -110,7 +125,7 @@ std::string vec_to_string(const std::vector<T>& obj_vec, int max_disp_count = 5)
 }
 
 template<class T>
-std::string list_to_string(const std::list<T>& obj_list, int max_disp_count = 5) {
+std::string List2String(const std::list<T>& obj_list, int max_disp_count = 5) {
     std::ostringstream oss;
     oss << "[";
     int i = 0;
@@ -134,7 +149,7 @@ std::string list_to_string(const std::list<T>& obj_list, int max_disp_count = 5)
 }
 
 template<class T>
-std::string set_to_string(const std::set<T>& obj_set, int max_disp_count = 5) {
+std::string Set2String(const std::set<T>& obj_set, int max_disp_count = 5) {
     std::ostringstream oss;
     oss << "{";
     int i = 0;
@@ -158,7 +173,7 @@ std::string set_to_string(const std::set<T>& obj_set, int max_disp_count = 5) {
 }
 
 template<class T>
-std::string object_to_string(const T& obj)/////这个怎么实现
+std::string Object2String(const T& obj)/////这个怎么实现
 {
     return "";
 }

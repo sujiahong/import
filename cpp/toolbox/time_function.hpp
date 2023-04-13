@@ -10,7 +10,7 @@
 namespace su
 {
 //////返回当前时间戳  秒
-static unsigned long long second_time()
+static unsigned long long SecondTime()
 {
     long int t = time(0);
     if (t != -1)
@@ -20,7 +20,7 @@ static unsigned long long second_time()
 }
 
 //////返回当前时间戳  毫秒
-static unsigned long long milli_time()
+static unsigned long long MilliTime()
 {
     struct timeval tv;
     if (gettimeofday(&tv, 0) == 0)
@@ -30,7 +30,7 @@ static unsigned long long milli_time()
 }
 
 //////返回当前时间戳  微秒
-static unsigned long long micro_time()
+static unsigned long long MicroTime()
 {
     struct timeval tv;
     if (gettimeofday(&tv, 0) == 0)
@@ -40,7 +40,7 @@ static unsigned long long micro_time()
 }
 
 //////返回当前时间戳  纳秒
-static unsigned long long nano_time()
+static unsigned long long NanoTime()
 {
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
@@ -63,10 +63,10 @@ struct tm {  
 };
 */
 ///获取当前时区  小时
-static int get_time_zone(unsigned long long a_cur_time=0)
+static int GetTimeZone(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
-        a_cur_time = second_time();
+        a_cur_time = SecondTime();
     struct tm tm_local;
     localtime_r((long*)&a_cur_time, &tm_local);
     struct tm tm_gm;
@@ -77,15 +77,35 @@ static int get_time_zone(unsigned long long a_cur_time=0)
 
 ////返回每天零点时间戳 秒 
 /////参数a_cur_time==0时，自动获取当前时间戳零点 东八区
-static unsigned long long zero_sec_time(unsigned long long a_cur_time=0)
+static unsigned long long ZeroSecTime(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
-        a_cur_time = second_time();
-    int time_zone = get_time_zone(a_cur_time);
+        a_cur_time = SecondTime();
+    int time_zone = GetTimeZone(a_cur_time);
     return a_cur_time - (a_cur_time + time_zone*HOUR_SECONDS)%DAY_SECONDS;
 }
 
+/// 返回当前时间是周几
+static unsigned int WeekDay(unsigned long long a_cur_time=0)
+{
+    if (a_cur_time == 0)
+        a_cur_time = SecondTime();
+    struct tm tm_local;
+    localtime_r((long*)&a_cur_time, &tm_local);
+    if (tm_local.tm_wday == 0) return 7;
+    return (unsigned int)(tm_local.tm_wday);
+}
 
+/// @brief 返回日期对应的时间戳
+/// a_date  格式 20230506  
+/// @return  当前时间戳
+static unsigned long long DateToTimeStamp(unsigned int a_date)
+{
+	unsigned int year = a_date/10000;
+	unsigned int month = (a_date-year*10000)/100;
+	unsigned int day = (a_date-year*10000-month*100);
+    
+}
 
 }
 

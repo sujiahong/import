@@ -81,7 +81,7 @@ private:
     void FindExpiredAndHandle()
     {
         MUTEX_GUARD(m_timer_mutex_)
-        m_tmp_key_.expire_time = second_time();
+        m_tmp_key_.expire_time = SecondTime();
         m_tmp_key_.timer_id = ULLONG_MAX;
         std::set<struct TimerKey>::iterator itor = m_timer_set_.lower_bound(m_tmp_key_);
         std::vector<struct TimerKey> vec(m_timer_set_.begin(), itor);
@@ -176,7 +176,7 @@ public:
     inline unsigned long long RunAt(TaskBase* a_task_ptr, unsigned long long a_timestamp)
     {
         MUTEX_GUARD(m_timer_mutex_)
-        m_tmp_key_.timer_id = nano_time();
+        m_tmp_key_.timer_id = NanoTime();
         m_tmp_key_.expire_time = a_timestamp;
         m_timer_set_.insert(m_tmp_key_);
         m_tmp_val_.interval = 0;
@@ -188,14 +188,14 @@ public:
 
     inline unsigned long long RunAfter(TaskBase* a_task_ptr, unsigned long long a_when)
     {
-        return RunAt(a_task_ptr, second_time()+a_when);
+        return RunAt(a_task_ptr, SecondTime()+a_when);
     }
 
     inline unsigned long long RunEvery(TaskBase* a_task_ptr, unsigned long long a_interval, int a_count = -1)
     {
         MUTEX_GUARD(m_timer_mutex_)
-        m_tmp_key_.timer_id = nano_time();
-        m_tmp_key_.expire_time = second_time()+a_interval;
+        m_tmp_key_.timer_id = NanoTime();
+        m_tmp_key_.expire_time = SecondTime()+a_interval;
         m_timer_set_.insert(m_tmp_key_);
         m_tmp_val_.interval = (unsigned int)a_interval;
         m_tmp_val_.count = a_count;
