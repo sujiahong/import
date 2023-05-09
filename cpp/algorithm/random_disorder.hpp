@@ -49,7 +49,7 @@ void DisorderArray(std::vector<T>& a_vec)
 {
     T tmp;
     unsigned int rand_num = 0;
-    srand(micro_time());
+    srand(SecondTime());
     for(unsigned int i = 0; i < a_vec.size(); ++i)
     {
         rand_num = RangeRandom(i, a_vec.size()-1);
@@ -66,7 +66,7 @@ void DisorderArrayV2(std::vector<T>& a_vec)
 {
     T tmp;
     unsigned int rand_num = 0;
-    srand(micro_time());
+    srand(SecondTime());
     for(unsigned int i = 0; i < a_vec.size(); ++i)
     {
         rand_num = RangeRandom(0, a_vec.size()-1);

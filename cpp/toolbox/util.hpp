@@ -1,7 +1,7 @@
 #ifndef _UTIL_HPP_
 #define _UTIL_HPP_
 
-#include <math>
+#include <cmath>
 
 namespace su{
     ////////平方根，，只能float  double有问题
@@ -26,13 +26,17 @@ namespace su{
         tmp = tmp*(1.5f - half*tmp*tmp);
         return a_n*tmp;
     }
-    long double2int64(double original)
+    /// @brief 小数的二进制有时不能精确，可能造成精度丢失，如果需要进行浮点运算，不要直接用float或者double进行加减乘除
+    /// @param original 
+    /// @return 
+    long Double2Int64(double original)////保证进度不会丢失
     {
 	    long temp = static_cast<long>(original);
-	    double ferror = original - static_cast<double>(temp);
-	    if (0.99 < fabs(ferror))
+	    double delta = original - static_cast<double>(temp);
+        std::cout<<" delta="<<delta<<" "<<static_cast<double>(temp)<<" "<<temp<<std::endl;
+	    if (0.99 < fabs(delta))
 	    {
-	    	if (0 < ferror)
+	    	if (0 < delta)
 	    	{
 	    		temp++;
 	    	}
