@@ -1,4 +1,3 @@
-module main_go.go
+module go
 
 go 1.17
-

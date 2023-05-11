@@ -10,15 +10,17 @@
             "request": "launch",
             "mode": "auto",
             "remotePath": "",
-            "port": 2345,
-            "host": "127.0.0.1",
-            "program": "${fileDirname}//my_util.go",
+            // "port": 2345,
+            // "host": "127.0.0.1",
+            "program": "${workspaceFolder}/go/main_go.go",
+            "cwd": "${workspaceFolder}",
             "env": {
                 "GOPATH": "/Users/sujiahong/workspace/go",
                 "GOROOT": "/usr/local/go",
             },
             "args": [],
             "showLog": true,
+            "dlvFlags": ["--check-go-version=false"]
         }
     ]
 }
