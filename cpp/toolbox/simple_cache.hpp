@@ -42,13 +42,13 @@ public:
         if (itor != m_cache.end())
         {
             itor->second.val = a_val;
-            itor->second.expire_time = (unsigned int)(TTL+second_time());
+            itor->second.expire_time = (unsigned int)(TTL+SecondTime());
             return 0;
         }
         std::pair<typename std::unordered_map<T_KEY, ItemValue<T_VAL> >::iterator, bool> pr = 
             m_cache.insert(typename std::unordered_map<T_KEY, ItemValue<T_VAL> >::value_type(a_key, ItemValue<T_VAL>()));
         pr.first->second.val = a_val;
-        pr.first->second.expire_time = (unsigned int)(TTL+second_time());
+        pr.first->second.expire_time = (unsigned int)(TTL+SecondTime());
         return 0;
     }
 
@@ -60,7 +60,7 @@ public:
         {
             return 1; //////没缓存
         }
-        if (itor->second.expire_time < (unsigned int)second_time())
+        if (itor->second.expire_time < (unsigned int)SecondTime())
         {
             m_cache.erase(itor);
             return 2;////////////过期

@@ -29,7 +29,7 @@ char* FileOpenWithMMap(std::string a_name, int a_flags, int a_mode=0)
     // write(fd, "", len);
     ftruncate(fd, len);
     char* maddr = (char*)mmap(NULL, len, PROT_WRITE|PROT_READ, MAP_SHARED, fd, 0);
-    std::cout <<" mmap  maddr="<<(void*)maddr<<std::endl;
+    //std::cout <<" mmap  maddr="<<(void*)maddr<<std::endl;
     if (maddr == MAP_FAILED)
         return 0;
     close(fd);
