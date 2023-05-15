@@ -6,6 +6,8 @@ import (
 	"os"
 	"runtime"
 	"time"
+	slog "go/su_log"
+	"go.uber.org/zap"
 )
 
 func a() {
@@ -62,5 +64,16 @@ func main() {
 	}
 	for k, v := range m {
 		fmt.Println(k, "===>", v.name)
+	}
+	for j:= 0; j < 10; j++ {
+		go func(t int){
+			for i := 0; i <1000; i++ {
+				slog.Info("test log", zap.Int("uid", 321323+i), zap.Int("j=", t))
+			}
+		}(j)
+	}
+	
+	for i := 0; i <1000; i++ {
+		slog.Info("test log", zap.Int("uid", 321323+i))
 	}
 }
