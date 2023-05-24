@@ -3,10 +3,13 @@ package main
 import (
 	"fmt"
 	"go/my_util"
+	slog "go/su_log"
 	"os"
 	"runtime"
 	"time"
-	slog "go/su_log"
+
+	"github.com/panjf2000/gnet"
+	"github.com/panjf2000/gnet/pkg/pool/goroutine"
 	"go.uber.org/zap"
 )
 
@@ -76,4 +79,10 @@ func main() {
 	for i := 0; i <1000; i++ {
 		slog.Info("test log", zap.Int("uid", 321323+i))
 	}
+
+	p := goroutine.Default()
+	defer p.Rlease()
+
+	echo := &echoServer{pool: p}
+	gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 }

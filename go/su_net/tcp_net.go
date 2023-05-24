@@ -1,17 +1,12 @@
-/*
- * @Copyright: 
- * @file name: File name
- * @Data: Do not edit
- * @LastEditor: 
- * @LastData: 
- * @Describe: 
- */
+
 package su_net
 
 import (
 	"fmt"
 	"net"
 )
+
+
 
 
 /////创建tcp服务器
