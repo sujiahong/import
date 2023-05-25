@@ -1,9 +1,9 @@
 #include "tcp_server.h"
 
-tcp_server::tcp_server(/* args */)
+su::tcp_server::tcp_server(/* args */)
 {
 }
 
-tcp_server::~tcp_server()
+su::tcp_server::~tcp_server()
 {
 }
