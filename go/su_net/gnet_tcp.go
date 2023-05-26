@@ -43,6 +43,7 @@ func (ts *gTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 	slog.Info("server recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
 	if (ts.async) {
 		data := append([]byte{}, frame...)
+		
 		_ = ts.pool.Submit(func(){
 			time.Sleep(1 * time.Second)
 			c.AsyncWrite(data)
