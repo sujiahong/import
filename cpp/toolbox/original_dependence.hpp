@@ -2,6 +2,7 @@
 #define _ORIGINAL_DEPENDENCE_HPP_
 
 #include <pthread.h>
+#include <assert.h>
 /////////////////linux错误码/////////////////////
 // #define EPERM 1 /* Operation not permitted */
 // #define ENOENT 2 /* No such file or directory */
@@ -179,13 +180,21 @@ class Singleton :public Noncopyable
 public:
     static T& Instance()
     {
-        phread_once(&m_ponce_, &Singleton::Init);
+        phread_once(&m_ponce_, &Singleton::init);
         return *m_value_;
     }
-
-    static void Init()
+private:
+    static void init()
     {
         m_value_ = new T();
+    }
+    static void destroy()
+    {
+        typedef char T_must_be_complete_type[sizeof(T) == 0 ? -1:1];
+        T_must_be_complete_type dummy; (void) dummy;
+
+        delete m_value_;
+        m_value_ = NULL;
     }
 private:
     static pthread_once_t m_ponce_;

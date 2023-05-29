@@ -1,3 +1,11 @@
+/*
+ * @Copyright: 
+ * @file name: File name
+ * @Data: Do not edit
+ * @LastEditor: 
+ * @LastData: 
+ * @Describe: 
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,7 +36,7 @@ void main()
     }
     int ep_fd = epoll_create(100000);
     struct epoll_event ep_event, ep_events[10000];
-    ep_event.events = EPOLLIN ｜ EPOLLET;
+    ep_event.events = EPOLLIN | EPOLLET;
     ep_event.data.fd = sock_fd;
     ret = epoll_ctl(ep_fd, EPOLL_CTL_ADD, sock_fd, &ep_event);
     ret = listen(sock_fd, SOMAXCONN);

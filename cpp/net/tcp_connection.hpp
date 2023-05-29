@@ -1,3 +1,4 @@
+
 ////////////////
 /// tcp连接
 ////////////////
@@ -25,6 +26,9 @@ private:
     unsigned short m_port_;
     std::string m_peer_ip_;/////////对方ip
     unsigned short m_peer_port_;////对方port
+    int m_conn_stat_;//////1 connecting,2 conected,3 disconneting,4 disconnected
+    Buffer* m_inbuffer_;
+    Buffer* m_outBuffer_;
 public:
     TcpConnection(int a_fd)
     {}
@@ -85,12 +89,13 @@ public:
         m_peer_ip_ = a_ip;
         m_peer_port_ = a_port;
     }
-    int Listen()
+    int Disconnect(int a_fd)
     {
 
     }
 
 
 };
+typedef std::shared_ptr<TcpConnection> TcpConnectionPtr;
 }
 #endif
