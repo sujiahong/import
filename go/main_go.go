@@ -30,6 +30,12 @@ type student struct {
 	age int
 }
 
+
+func GetTodayZeroTime() int64 {
+	now := time.Now()
+	zero_time := time.Date(now.Year(), now.Month(), now.Day(),0,0,0,0,now.Location())
+	return zero_time.Unix()
+}
 func main() {
 	runtime.GOMAXPROCS(3)
 	p, _ := os.Getwd()
@@ -68,21 +74,22 @@ func main() {
 	for k, v := range m {
 		fmt.Println(k, "===>", v.name)
 	}
-	for j:= 0; j < 10; j++ {
-		go func(t int){
-			for i := 0; i <1000; i++ {
-				slog.Info("test log", zap.Int("uid", 321323+i), zap.Int("j=", t))
-			}
-		}(j)
-	}
+	// for j:= 0; j < 10; j++ {
+	// 	go func(t int){
+	// 		for i := 0; i <1000; i++ {
+	// 			slog.Info("test log", zap.Int("uid", 321323+i), zap.Int("j=", t))
+	// 		}
+	// 	}(j)
+	// }
 	
-	for i := 0; i <1000; i++ {
-		slog.Info("test log", zap.Int("uid", 321323+i))
-	}
+	// for i := 0; i <1000; i++ {
+	// 	slog.Info("test log", zap.Int("uid", 321323+i))
+	// }
 
-	p := goroutine.Default()
-	defer p.Rlease()
+	// p := goroutine.Default()
+	// defer p.Rlease()
 
-	echo := &echoServer{pool: p}
-	gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
+	// echo := &echoServer{pool: p}
+	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
+	fmt.Println("@@@@@", GetTodayZeroTime())
 }

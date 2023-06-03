@@ -3,6 +3,7 @@ package my_util
 import (
 	"runtime"
 	"fmt"
+    "time"
 	"path/filepath"
     slog "go/su_log"
     "go.uber.org/zap"
@@ -36,3 +37,8 @@ func Classifier(items ...interface{}) {/////类型分类函数
     }
 }
 
+func GetTodayZeroTime() int64 {
+	now := time.Now()
+	zero_time := time.Date(now.Year(), now.Month(), now.Day(),0,0,0,0,now.Location())
+	return zero_time.Unix()
+}
