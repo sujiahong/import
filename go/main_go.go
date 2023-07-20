@@ -3,24 +3,31 @@ package main
 import (
 	"fmt"
 	"go/my_util"
-	slog "go/su_log"
+	//slog "go/su_log"
 	"os"
 	"runtime"
 	"time"
 
-	"github.com/panjf2000/gnet"
-	"github.com/panjf2000/gnet/pkg/pool/goroutine"
-	"go.uber.org/zap"
+	// "github.com/panjf2000/gnet"
+	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
+	//"go.uber.org/zap"
 )
 
 func a() {
+	aa := "aaaa"
 	for i := 1; i < 10; i++ {
 		fmt.Println("A:", i)
 	}
+	go func(){
+		for i := 1; i < 1000; i++ {
+			fmt.Println("aa:", i, aa)
+		}
+	}()
+	fmt.Println("end end end")
 }
 
 func b() {
-	for i := 1; i < 10; i++ {
+	for i := 1; i < 100; i++ {
 		fmt.Println("B:", i)
 	}
 }
@@ -37,7 +44,7 @@ func GetTodayZeroTime() int64 {
 	return zero_time.Unix()
 }
 func main() {
-	runtime.GOMAXPROCS(3)
+	runtime.GOMAXPROCS(5)
 	p, _ := os.Getwd()
 	fmt.Println("111111111 ", p)
 	var li = my_util.GetLogFileLine()
@@ -57,23 +64,22 @@ func main() {
 
 	
 	go a()
-	go b()
 	time.Sleep(time.Second)
 
-	m := make(map[string]*student)
-	stus := []student{
-		{name: "pprof.cn", age: 18},
-		{name: "测试", age: 23},
-		{name: "博客", age: 34},
-	}
+	// m := make(map[string]*student)
+	// stus := []student{
+	// 	{name: "pprof.cn", age: 18},
+	// 	{name: "测试", age: 23},
+	// 	{name: "博客", age: 34},
+	// }
 
-	for _, stu := range stus {
-		fmt.Printf(" %p\n", &stu)
-		m[stu.name] = &stu
-	}
-	for k, v := range m {
-		fmt.Println(k, "===>", v.name)
-	}
+	// for _, stu := range stus {
+	// 	fmt.Printf(" %p\n", &stu)
+	// 	m[stu.name] = &stu
+	// }
+	// for k, v := range m {
+	// 	fmt.Println(k, "===>", v.name)
+	// }
 	// for j:= 0; j < 10; j++ {
 	// 	go func(t int){
 	// 		for i := 0; i <1000; i++ {
@@ -91,5 +97,5 @@ func main() {
 
 	// echo := &echoServer{pool: p}
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
-	fmt.Println("@@@@@", GetTodayZeroTime())
+	//fmt.Println("@@@@@", GetTodayZeroTime())
 }

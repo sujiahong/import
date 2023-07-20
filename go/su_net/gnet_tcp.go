@@ -13,39 +13,48 @@ import (
 	"go.uber.org/zap"
 )
 
-type gTcpServer struct{
+type suNetConn struct {
+	gnet.Conn
+	state     int32       /////是否使用 1 使用  0 未使用
+	data_cache []byte     ////网络数据缓存
+}
+
+type RecvHandler func() error
+
+type GTcpServer struct{
 	*gnet.EventServer         ////匿名字段   事件服务
 	pool *goroutine.Pool        ///协程池
+	Addr    string            ////监听地址
 	async   bool
 	multicore bool
 	connMap  sync.Map         /////ip - 连接映射
 }
 
-func (ts *gTcpServer)OnInitComplete(server gnet.Server)(action gnet.Action){
+func (ts *GTcpServer)OnInitComplete(server gnet.Server)(action gnet.Action){
 	slog.Info("server init finish !!!!", zap.Bool("multicore", server.Multicore), 
 		zap.String("listen addr", server.Addr.String()), zap.Int("loops", server.NumEventLoop))
 	return
 }
 
-func (ts *gTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
+func (ts *GTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()))
 	ts.connMap.Store(c.RemoteAddr().String(), c)
 	return
 }
 
-func (ts *gTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
+func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()))
 	ts.connMap.Delete(c.RemoteAddr().String())
 	return
 }
 
-func (ts *gTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
+func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("server recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
 	if (ts.async) {
 		data := append([]byte{}, frame...)
 		
 		_ = ts.pool.Submit(func(){
-			time.Sleep(1 * time.Second)
+			//time.Sleep(1 * time.Second)
 			c.AsyncWrite(data)
 		})
 		return
@@ -55,22 +64,23 @@ func (ts *gTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 	return
 }
 
-func CreateServer(a_addr string){
-	ts := &gTcpServer{async: true, multicore: true}
+func (ts *GTcpServer)Close(){
+
+}
+
+
+func CreateServer(a_addr string) *GTcpServer{
+	ts := &GTcpServer{async: true, multicore: true, Addr: a_addr}
 	paddr := "tcp://:"+a_addr
 	err := gnet.Serve(ts, paddr, gnet.WithMulticore(true))
 	if err != nil {
 		slog.Error("create server failed", zap.String("addr: ", paddr))
-		return
+		return nil
 	}
+	return ts
 }
 
 ///////////////////////////////////客户端///////////////////////////////////////
-
-type suNetConn struct {
-	gnet.Conn
-	state     int32       /////是否使用 1 使用  0 未使用
-}
 
 type GTcpClient struct{
 	*gnet.EventServer            ////匿名字段   事件服务
