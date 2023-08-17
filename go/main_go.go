@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"go/my_util"
-	//slog "go/su_log"
+	slog "go/su_log"
 	"os"
 	"runtime"
 	"time"
@@ -63,8 +63,8 @@ func main() {
 	}
 
 	
-	go a()
-	time.Sleep(time.Second)
+	// go a()
+	// time.Sleep(time.Second)
 
 	// m := make(map[string]*student)
 	// stus := []student{
@@ -98,4 +98,13 @@ func main() {
 	// echo := &echoServer{pool: p}
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 	//fmt.Println("@@@@@", GetTodayZeroTime())
+	my_util.DelayRun(3000, func(){
+		slog.Info("delay run")
+	})
+	my_util.IntervalRun(1000, 3, func(){
+		slog.Info("interval run")
+	})
+	time.Sleep(time.Second*5)
+
+	my_util.CopyFile("./su_net/gnet_tcp.go", "1.go")
 }

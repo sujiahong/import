@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"fmt"
     "time"
+    "os"
+    "io"
 	"path/filepath"
     slog "go/su_log"
     "go.uber.org/zap"
@@ -45,7 +47,7 @@ func GetTodayZeroTime() int64 {
 
 func RecoverPanic() {
     if err := recover(); err != nil {
-        slog.Error("error :", zap.Error(err))
+        slog.Error("error :", zap.Any("err:", err))
     }
 }
 
@@ -73,9 +75,38 @@ func IntervalRun(a_interval, a_times uint32, a_f func()) {
                 count++
             }
 		    select {
-		    case <-time.Tick(time.Duration(a_dealy) * time.Millisecond):
+		    case <-time.Tick(time.Duration(a_interval) * time.Millisecond):
 		    	a_f()
 		    }
         }
+    }()
+}
+
+//文件拷贝，从a拷到b
+func CopyFile(a_src_file, a_dst_file string) {
+    srcFileST, err := os.Open(a_src_file)
+    if err != nil {
+        slog.Error("src os.Open err=", zap.Error(err))
+        return
+    }
+    dstFileST, err := os.Open(a_dst_file)
+    if err != nil {
+        slog.Error("dst os.Open err=", zap.Error(err))
+        return
+    }
+    defer srcFileST.Close()
+    defer dstFileST.Close()
+    buf := make([]byte, 4098)
+    for {
+        n, err := srcFileST.Read(buf)
+        if err == io.EOF {
+            slog.Info("srcFileST.Read读取完毕")
+            break
+        }
+        if err != nil {
+            slog.Error("srcFileST.Read err=", zap.Error(err))
+            break
+        }
+        dstFileST.Write(buf[:n])
     }
 }
