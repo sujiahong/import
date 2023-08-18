@@ -7,10 +7,11 @@ import (
 	"os"
 	"runtime"
 	"time"
+	// "go/my_util/go_pool"
 
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
-	//"go.uber.org/zap"
+	"go.uber.org/zap"
 )
 
 func a() {
@@ -107,4 +108,23 @@ func main() {
 	time.Sleep(time.Second*5)
 
 	my_util.CopyFile("./su_net/gnet_tcp.go", "1.go")
+
+	gp := my_util.NewGoPool(3, 3)
+	for i := 0; i < 10; i++ {
+		nano1 := time.Now().UnixNano()
+		gp.SendTask(uint64(nano1), func(){
+			slog.Info("执行", zap.Any("nano1=",nano1))
+		})
+		time.Sleep(time.Second)
+	}
+	gp.Stop()
+	nano2 := time.Now().UnixNano()
+	gp.SendTask(uint64(nano2), func(){
+		slog.Info("执行", zap.Any("nano2=",nano2))
+	})
+	// nano3 := time.Now().UnixNano()
+	// gp.SendTask(uint64(nano3), func(){
+	// 	slog.Info("执行", zap.Any("nano3=",nano3))
+	// })
+	time.Sleep(time.Second*5)
 }

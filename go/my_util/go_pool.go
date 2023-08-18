@@ -1,5 +1,9 @@
-package go_pool
+package my_util
 
+import (
+	slog "go/su_log"
+	"go.uber.org/zap"
+)
 
 type GoPool struct {
 	func_pool_slice   []chan func()
@@ -15,7 +19,8 @@ func NewGoPool(a_go_num, a_cache_num uint32) *GoPool{
 		state: 0,
 	}
 	gp.func_pool_slice = make([]chan func(), a_go_num)
-	for i := 0; i < a_go_num; i ++ {
+	var i uint32 = 0
+	for i = 0; i < a_go_num; i ++ {
 		gp.func_pool_slice[i] = make(chan func(), a_cache_num)
 	}
 	gp.Start()
@@ -24,7 +29,8 @@ func NewGoPool(a_go_num, a_cache_num uint32) *GoPool{
 }
 
 func (gp *GoPool)Start() {
-	for i := 0; i < gp.coroutine_num; i++ {
+	var i uint32 = 0
+	for i = 0; i < gp.coroutine_num; i++ {
 		go gp.Run(i, gp.func_pool_slice[i])
 	}
 }
@@ -32,23 +38,28 @@ func (gp *GoPool)Start() {
 func (gp *GoPool)Run(index uint32, a_func_ch chan func()){
 	for f := range a_func_ch {
 		if gp.state == 0 {
+			slog.Warn("协程池关闭", zap.Any("index=", index))
 			return
 		}
 		f()
 	}
+	slog.Warn("协程运行结束", zap.Any("index=", index))
 }
 
 func (gp *GoPool)Stop() {
 	gp.state = 0
-	for i := 0; i < gp.coroutine_num; i++ {
-		Close(gp.func_pool_slice[i])
+	var i uint32 = 0
+	for i = 0; i < gp.coroutine_num; i++ {
+		close(gp.func_pool_slice[i])
 	}
 }
 
 func (gp *GoPool)SendTask(a_shardingid uint64, a_func func()){
 	if gp.state == 0 {
+		slog.Warn("协程池关闭了", zap.Any("a_shardingid=", a_shardingid))
 		return
 	}
-	index := a_shardingid % gp.coroutine_num;
+	index := a_shardingid % uint64(gp.coroutine_num);
+	slog.Info("go routine index", zap.Any("index=", index))
 	gp.func_pool_slice[index] <- a_func
 }
