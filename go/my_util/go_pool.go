@@ -3,13 +3,14 @@ package my_util
 import (
 	slog "go/su_log"
 	"go.uber.org/zap"
+	"sync/atomic"
 )
 
 type GoPool struct {
 	func_pool_slice   []chan func()
 	coroutine_num     uint32
 	cache_num         uint32
-	state             int     ////状态 0 停止 1 运行
+	state             int32     ////状态 0 停止 1 运行
 }
 
 func NewGoPool(a_go_num, a_cache_num uint32) *GoPool{
@@ -37,7 +38,7 @@ func (gp *GoPool)Start() {
 
 func (gp *GoPool)Run(index uint32, a_func_ch chan func()){
 	for f := range a_func_ch {
-		if gp.state == 0 {
+		if atomic.LoadInt32(&gp.state) == 0 {
 			slog.Warn("协程池关闭", zap.Any("index=", index))
 			return
 		}
@@ -47,7 +48,7 @@ func (gp *GoPool)Run(index uint32, a_func_ch chan func()){
 }
 
 func (gp *GoPool)Stop() {
-	gp.state = 0
+	atomic.StoreInt32(&gp.state, 0)
 	var i uint32 = 0
 	for i = 0; i < gp.coroutine_num; i++ {
 		close(gp.func_pool_slice[i])
@@ -55,7 +56,7 @@ func (gp *GoPool)Stop() {
 }
 
 func (gp *GoPool)SendTask(a_shardingid uint64, a_func func()){
-	if gp.state == 0 {
+	if atomic.LoadInt32(&gp.state) == 0 {
 		slog.Warn("协程池关闭了", zap.Any("a_shardingid=", a_shardingid))
 		return
 	}
