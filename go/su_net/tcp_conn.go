@@ -11,5 +11,5 @@ import (
 type GNetConn struct {
 	gnet.Conn
 	state     int32       /////是否使用 1 使用  0 未使用
-	data_cache []byte     ////网络数据缓存
+	recv_data []byte     ////网络数据缓存
 }

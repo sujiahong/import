@@ -34,12 +34,13 @@ func (ts *GTcpServer)OnInitComplete(server gnet.Server)(action gnet.Action){
 
 func (ts *GTcpServer)OnShutdown(svr gnet.Server){
 	slog.Info("server shutdown !!!!", zap.Bool("multicore", server.Multicore))
+	atomic.StoreInt32(ts.Stat, 0)
 }
 
 func (ts *GTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
-
-	ts.connMap.Store(c.RemoteAddr().String(), c)
+	gconn := &GNetConn{gnet.Conn: c, recv_data: make([]byte, 8192)}
+	ts.connMap.Store(c.RemoteAddr().String(), gconn)
 	return
 }
 
