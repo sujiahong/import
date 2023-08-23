@@ -6,10 +6,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"go/my_util"
 
 	"github.com/panjf2000/gnet"
-	"github.com/panjf2000/gnet/pkg/pool/goroutine"
-	"github.com/panjf2000/gnet/pool/goroutine"
 	"go.uber.org/zap"
 )
 
@@ -17,11 +16,14 @@ type RecvHandler func() error
 
 type GTcpServer struct{
 	*gnet.EventServer         ////匿名字段   事件服务
-	pool *goroutine.Pool        ///协程池
+	Pool *my_util.GoPool      ///协程池
+	Stat    int32             /// 服务状态 0 停止 1 初始化 2 启动
 	Addr    string            ////监听地址
-	async   bool
+	async   bool              // 是否异步处理
 	multicore bool
 	connMap  sync.Map         /////ip - 连接映射
+	recv_data []byte
+	handlerMap sync.Map
 }
 
 func (ts *GTcpServer)OnInitComplete(server gnet.Server)(action gnet.Action){
@@ -30,28 +32,29 @@ func (ts *GTcpServer)OnInitComplete(server gnet.Server)(action gnet.Action){
 	return
 }
 
+func (ts *GTcpServer)OnShutdown(svr gnet.Server){
+	slog.Info("server shutdown !!!!", zap.Bool("multicore", server.Multicore))
+}
+
 func (ts *GTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
-	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()))
+	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
+
 	ts.connMap.Store(c.RemoteAddr().String(), c)
 	return
 }
 
 func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
-	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()))
+	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
 	ts.connMap.Delete(c.RemoteAddr().String())
 	return
 }
 
 func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
-	slog.Info("server recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
+	slog.Info("conn recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
+	recv_data = append(recv_data, frame...)
+	recv_data, dp, err := Decode(recv_data)
 	if (ts.async) {
-		data := append([]byte{}, frame...)
-		
-		_ = ts.pool.Submit(func(){
-			//time.Sleep(1 * time.Second)
-			c.AsyncWrite(data)
-		})
-		return
+
 	} else {
 		out = frame
 	}
@@ -59,18 +62,23 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 }
 
 func (ts *GTcpServer)Close(){
-
+	gnet.Stop()
+	ts.pool.Stop()
 }
 
+func (ts *GTcpServer)RegisterHandler() {
+	
+}
 
 func CreateServer(a_addr string) *GTcpServer{
-	ts := &GTcpServer{async: true, multicore: true, Addr: a_addr}
+	ts := &GTcpServer{async: true, multicore: true, Addr: a_addr, Stat: 1}
 	paddr := "tcp://:"+a_addr
 	err := gnet.Serve(ts, paddr, gnet.WithMulticore(true))
 	if err != nil {
 		slog.Error("create server failed", zap.String("addr: ", paddr))
 		return nil
 	}
+	ts.Pool = my_util.NewGoPool(16, 1024)
 	return ts
 }
 

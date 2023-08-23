@@ -94,14 +94,23 @@ func IntervalRun(a_interval, a_times uint32, a_f func()) {
 
 //文件拷贝，从a拷到b
 func CopyFile(a_src_file, a_dst_file string) {
-    srcFileST, err := os.Open(a_src_file)
+    var err error
+    var srcFileST *os.File
+    srcFileST, err = os.Open(a_src_file)
     if err != nil {
         slog.Error("src os.Open err=", zap.Error(err))
+        if !os.IsExist(err) {
+            srcFileST, err = os.Create(a_src_file)
+            if err != nil {
+                slog.Error("src os.Create err=", zap.Error(err))
+            }
+        }
         return
     }
-    dstFileST, err := os.Open(a_dst_file)
+    var dstFileST *os.File
+    dstFileST, err = os.OpenFile(a_dst_file, os.O_RDWR|os.O_CREATE, 0777)
     if err != nil {
-        slog.Error("dst os.Open err=", zap.Error(err))
+        slog.Error("dst os.OpenFile err=", zap.Error(err))
         return
     }
     defer srcFileST.Close()
@@ -109,14 +118,19 @@ func CopyFile(a_src_file, a_dst_file string) {
     buf := make([]byte, 4098)
     for {
         n, err := srcFileST.Read(buf)
-        if err == io.EOF {
-            slog.Info("srcFileST.Read读取完毕")
+        //slog.Info("打印 ", zap.Any("n=",n), zap.Any("a_src_file",a_src_file))
+        if err == io.EOF && n == 0{
+            slog.Info("srcFileST.Read读取完毕", zap.Any("read n", n))
             break
         }
         if err != nil {
             slog.Error("srcFileST.Read err=", zap.Error(err))
             break
         }
-        dstFileST.Write(buf[:n])
+        wn, err := dstFileST.Write(buf[:n])
+        if err != nil {
+            slog.Error("dstFileST.Write err=", zap.Error(err), zap.Any("wn=", wn))
+            break
+        }
     }
 }
