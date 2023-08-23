@@ -78,4 +78,7 @@ func Decode(a_data []byte) (remain_bytes []byte, dpt DataProtocol, err error){
 func Route(){
 
 }
-////分片ID取模
+
+type HandlerFuncST struct {
+
+}

@@ -5,7 +5,7 @@ import (
 	"go.uber.org/zap"
 	"sync/atomic"
 )
-
+/////go协程池
 type GoPool struct {
 	func_pool_slice   []chan func()
 	coroutine_num     uint32
@@ -32,11 +32,11 @@ func NewGoPool(a_go_num, a_cache_num uint32) *GoPool{
 func (gp *GoPool)Start() {
 	var i uint32 = 0
 	for i = 0; i < gp.coroutine_num; i++ {
-		go gp.Run(i, gp.func_pool_slice[i])
+		go gp.run(i, gp.func_pool_slice[i])
 	}
 }
 
-func (gp *GoPool)Run(index uint32, a_func_ch chan func()){
+func (gp *GoPool)run(index uint32, a_func_ch chan func()){
 	for f := range a_func_ch {
 		if atomic.LoadInt32(&gp.state) == 0 {
 			slog.Warn("协程池关闭", zap.Any("index=", index))
