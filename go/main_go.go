@@ -99,29 +99,30 @@ func main() {
 	// echo := &echoServer{pool: p}
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 	//fmt.Println("@@@@@", GetTodayZeroTime())
+
 	my_util.DelayRun(3000, func(){
 		slog.Info("delay run")
 	})
 	my_util.IntervalRun(1000, 3, func(){
-		slog.Info("interval run")
+		slog.Info("interval run", zap.Any("q", 3))
 	})
 	time.Sleep(time.Second*5)
 
-	my_util.CopyFile("./su_net/gnet_tcp.go", "1.go")
+	// my_util.CopyFile("./t.log", "1.log")
 
-	gp := my_util.NewGoPool(3, 3)
-	for i := 0; i < 10; i++ {
-		nano1 := time.Now().UnixNano()
-		gp.SendTask(uint64(nano1), func(){
-			slog.Info("执行", zap.Any("nano1=",nano1))
-		})
-		time.Sleep(time.Second)
-	}
-	gp.Stop()
-	nano2 := time.Now().UnixNano()
-	gp.SendTask(uint64(nano2), func(){
-		slog.Info("执行", zap.Any("nano2=",nano2))
-	})
+	// gp := my_util.NewGoPool(3, 3)
+	// for i := 0; i < 10; i++ {
+	// 	nano1 := time.Now().UnixNano()
+	// 	gp.SendTask(uint64(nano1), func(){
+	// 		slog.Info("执行", zap.Any("nano1=",nano1))
+	// 	})
+	// 	time.Sleep(time.Second)
+	// }
+	// gp.Stop()
+	// nano2 := time.Now().UnixNano()
+	// gp.SendTask(uint64(nano2), func(){
+	// 	slog.Info("执行", zap.Any("nano2=",nano2))
+	// })
 	// nano3 := time.Now().UnixNano()
 	// gp.SendTask(uint64(nano3), func(){
 	// 	slog.Info("执行", zap.Any("nano3=",nano3))
