@@ -13,12 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type suNetConn struct {
-	gnet.Conn
-	state     int32       /////是否使用 1 使用  0 未使用
-	data_cache []byte     ////网络数据缓存
-}
-
 type RecvHandler func() error
 
 type GTcpServer struct{
