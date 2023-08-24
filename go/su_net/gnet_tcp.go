@@ -45,7 +45,8 @@ func (ts *GTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 }
 
 func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
-	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
+	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()),
+		zap.String("err:", err.Error()))
 	if err != nil {
 		return
 	}
@@ -164,15 +165,7 @@ func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 
 func (tc *GTcpClient)Send(a_msg []byte) (err error) {
 	var c_i int = -1
-	tc.mtx.Lock()
-	for i, val := range tc.conn_pool {
-		if val.state == 0 {////可用
-			c_i = i
-			val.state = 1
-			break
-		}
-	}
-	tc.mtx.Unlock()
+
 	slog.Info("client send data", zap.Int("c_i: ", c_i), zap.Int("data len:", len(a_msg)))
 	if c_i > 0 {
 		err = tc.conn_pool[c_i].Gconn.AsyncWrite(a_msg)
