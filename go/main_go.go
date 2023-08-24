@@ -12,6 +12,7 @@ import (
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
 	"go.uber.org/zap"
+	"go/su_net"
 )
 
 func a() {
@@ -127,5 +128,9 @@ func main() {
 	// gp.SendTask(uint64(nano3), func(){
 	// 	slog.Info("执行", zap.Any("nano3=",nano3))
 	// })
-	time.Sleep(time.Second*5)
+	// time.Sleep(time.Second*5)
+
+	// gts := su_net.CreateServer("9990")
+	// gts.RegisterHandler()
+	gtc := su_net.CreateClient("127.0.0.1:9990",1)
 }
