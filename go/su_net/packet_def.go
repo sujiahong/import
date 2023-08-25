@@ -14,10 +14,10 @@ import (
 )
 
 type Header struct {// 24字节
-	Pack_len      uint32  ///整个包长度，包头加包
-	Pack_id       uint32
-	Route_id      uint64
-	Head_uuid     uint64
+	PackLen      uint32  ///整个包长度，包头加包
+	PackId       uint32
+	RouteId      uint64
+	HeadUuid     uint64
 }
 
 type DataProtocol struct {
@@ -42,17 +42,17 @@ type Pong struct {
 func Encode(dpt DataProtocol) (byte_arr []byte, err error){
 	byte_arr = make([]byte, 0)
 	buffer := bytes.NewBuffer(byte_arr)
-	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.Pack_len); err != nil {
-		errors.New("write pack len err")
+	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.PackLen); err != nil {
+		err = errors.New("write pack len err")
 		return
 	}
-	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.Pack_id); err != nil {
+	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.PackId); err != nil {
 		return
 	}
-	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.Route_id); err != nil {
+	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.RouteId); err != nil {
 		return
 	}
-	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.Head_uuid); err != nil {
+	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.HeadUuid); err != nil {
 		return
 	}	
 	if err = binary.Write(buffer, binary.BigEndian, dpt.Data); err != nil {
@@ -69,37 +69,49 @@ func Decode(a_data []byte) (remain_bytes []byte, dpt DataProtocol, err error){
 		return
 	}
 	byteBuffer := bytes.NewBuffer(a_data)
-	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.Pack_len)
-	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.Pack_id)
-	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.Route_id)
-	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.Head_uuid)
-	if dpt.Head.Pack_len > tmp_len{
-		slog.Error("a_data length < decode length", zap.Uint32("tmp_len: ", tmp_len), zap.Uint32("decode len:", dpt.Head.Pack_len))
+	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.PackLen)
+	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.PackId)
+	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.RouteId)
+	binary.Read(byteBuffer, binary.BigEndian, &dpt.Head.HeadUuid)
+	if dpt.Head.PackLen > tmp_len{
+		slog.Error("a_data length < decode length", zap.Uint32("tmp_len: ", tmp_len), zap.Uint32("decode len:", dpt.Head.PackLen))
 		err = errors.New("数据长度过短")
 		return
 	}
-	dpt.Data = a_data[HeadLength:dpt.Head.Pack_len]
-	remain_bytes = a_data[dpt.Head.Pack_len:]
+	slog.Info("打印", zap.Any("dpt: ", dpt))
+	dpt.Data = a_data[HeadLength:dpt.Head.PackLen]
+	remain_bytes = a_data[dpt.Head.PackLen:]
 	return
 }
 
 func PingDecode(a_data []byte, a_pack_len uint32) (ping Ping, err error) {
 	data_len := uint32(len(a_data))
 	if data_len != a_pack_len - HeadLength {
-		err = errors.New("byte length < data length")
 		slog.Error("byte length < data length", zap.Uint32("data_len: ", data_len), zap.Uint32("a_pack_len - HeadLength", a_pack_len - HeadLength))
+		err = errors.New("byte length < data length")
 		return
 	}
 	byteBuffer := bytes.NewBuffer(a_data)
 	binary.Read(byteBuffer, binary.BigEndian, &ping.Send_time)
 	return
 }
+func PingEncode(a_ping Ping)(byte_arr []byte, err error) {
+	byte_arr = make([]byte, 0)
+	buffer := bytes.NewBuffer(byte_arr)
+	if err = binary.Write(buffer, binary.BigEndian, a_ping.Send_time); err != nil {
+		slog.Error("write a_ping.Send_time err", zap.Error(err))
+		err = errors.New("write a_ping.Send_time err")
+		return
+	}
+	byte_arr = buffer.Bytes()
+	return
+}
 func PongEncode(a_pong Pong)(byte_arr []byte, err error) {
 	byte_arr = make([]byte, 0)
 	buffer := bytes.NewBuffer(byte_arr)
 	if err = binary.Write(buffer, binary.BigEndian, a_pong.Send_time); err != nil {
-		errors.New("write a_pong.Send_time err")
 		slog.Error("write a_pong.Send_time err", zap.Error(err))
+		err = errors.New("write a_pong.Send_time err")
 		return
 	}
 	byte_arr = buffer.Bytes()

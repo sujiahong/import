@@ -117,7 +117,7 @@ func main() {
 	// 	gp.SendTask(uint64(nano1), func(){
 	// 		slog.Info("执行", zap.Any("nano1=",nano1))
 	// 	})
-	// 	time.Sleep(time.Second)
+	// 	//time.Sleep(time.Second)
 	// }
 	// gp.Stop()
 	// nano2 := time.Now().UnixNano()
@@ -132,5 +132,8 @@ func main() {
 
 	// gts := su_net.CreateServer("9990")
 	// gts.RegisterHandler()
-	gtc := su_net.CreateClient("127.0.0.1:9990",1)
+	gtc := su_net.CreateClient("127.0.0.1:9990",2)
+	gtc.RegisterHandler()
+
+	time.Sleep(time.Second*3600)
 }

@@ -39,14 +39,14 @@ func (ts *GTcpServer)OnShutdown(server gnet.Server){
 
 func (ts *GTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
-	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 8192)}
+	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 0, 8192)}
 	ts.connMap.Store(c.RemoteAddr().String(), gconn)
 	return
 }
 
 func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()),
-		zap.String("err:", err.Error()))
+		zap.Error(err))
 	if err != nil {
 		return
 	}
@@ -65,12 +65,12 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 		gconn.RecvData, dp, ret_err = Decode(gconn.RecvData)
 		rs_dp := dp
 		if (ts.async) {
-			ts.pool.SendTask(dp.Head.Route_id, func(){
-				if dp.Head.Pack_id == 1000 {////处理心跳
-					rs_dp.Head.Pack_id = 1001
+			ts.pool.SendTask(dp.Head.RouteId, func(){
+				if dp.Head.PackId == 1000 {////处理心跳
+					rs_dp.Head.PackId = 1001
 					nano_time := uint64(time.Now().UnixNano())
-					rs_dp.Head.Head_uuid = nano_time
-					ping, err := PingDecode(rs_dp.Data, rs_dp.Head.Pack_len)
+					rs_dp.Head.HeadUuid = nano_time
+					ping, err := PingDecode(rs_dp.Data, rs_dp.Head.PackLen)
 					if err != nil {
 						return
 					}
@@ -87,17 +87,16 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 					}
 					c.AsyncWrite(rs_bytes)
 				}else{
-					_, ok := ts.handlerMap.Load(dp.Head.Pack_id)
+					_, ok := ts.handlerMap.Load(dp.Head.PackId)
 					if ok {
 						slog.Info("包处理", zap.String("remote addr", c.RemoteAddr().String()),
-							zap.Uint32("packid",dp.Head.Pack_id))
+							zap.Uint32("packid",dp.Head.PackId))
 						
 					}else {
 						slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
-							zap.Uint32("packid",dp.Head.Pack_id))
+							zap.Uint32("packid",dp.Head.PackId))
 					}
 				}
-				
 			})
 		} else {
 			out = frame
@@ -120,13 +119,13 @@ func (ts *GTcpServer)RegisterHandler() {
 
 func CreateServer(a_addr string) *GTcpServer{
 	ts := &GTcpServer{async: true, multicore: true, Addr: a_addr, Stat: 1}
+	ts.pool = my_util.NewGoPool(16, 1024)
 	paddr := "tcp://:"+a_addr
 	err := gnet.Serve(ts, paddr, gnet.WithMulticore(true))
 	if err != nil {
 		slog.Error("create server failed", zap.String("addr: ", paddr), zap.Error(err))
 		return nil
 	}
-	ts.pool = my_util.NewGoPool(16, 1024)
 	return ts
 }
 
@@ -143,13 +142,14 @@ type GTcpClient struct{
 func (tc *GTcpClient)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("client new conn ", zap.String("remote addr", c.RemoteAddr().String()), 
 		zap.String("local addr", c.LocalAddr().String()))
-	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 8192)}
+	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 0, 8192)}
 	tc.connMap.Store(c.LocalAddr().String(), gconn)
+	atomic.StoreInt32(&tc.state, 2)
 	return
 }
 
 func (tc *GTcpClient)OnClosed(c gnet.Conn, err error)(action gnet.Action){
-	slog.Info("client close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("err:", err.Error()),
+	slog.Info("client close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.Error(err),
 		zap.String("local addr", c.LocalAddr().String()))
 	if err != nil {
 		return
@@ -164,26 +164,33 @@ func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 }
 
 func (tc *GTcpClient)Send(a_msg []byte) (err error) {
-	var c_i int = -1
-
-	slog.Info("client send data", zap.Int("c_i: ", c_i), zap.Int("data len:", len(a_msg)))
-	if c_i > 0 {
-		err = tc.conn_pool[c_i].Gconn.AsyncWrite(a_msg)
-	}
-	atomic.AddInt32(&tc.conn_pool[c_i].state, 0)
+	tc.connMap.Range(func(k, v interface{})bool{
+		key_str := k.(string)
+		gconn := v.(*GNetConn)
+		slog.Info("client send data", zap.String("key_str: ", key_str), zap.Int("data len:", len(a_msg)))
+		gconn.Gconn.AsyncWrite(a_msg)
+		//atomic.AddInt32(&gconn.state, 0)
+		return false
+	})
+	
 	return
 }
 
 func (tc *GTcpClient)Stop()(err error){
 	err = tc.Client.Stop()
 	slog.Info("client stop ", zap.String("err:", err.Error()))/////关闭客户端
+	atomic.StoreInt32(&tc.state, 0)
 	return
+}
+
+func (tc *GTcpClient)RegisterHandler() {
+
 }
 
 func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{
 	var port int
 	flag.IntVar(&port, "port", 9990, "server port")
-	tc := &GTcpClient{remote_addr: a_addr, conn_pool: make([]*GNetConn, 0)}
+	tc := &GTcpClient{remote_addr: a_addr, state: 0}
 
 	client, err := gnet.NewClient(tc, gnet.WithTCPNoDelay(gnet.TCPDelay), gnet.WithTCPKeepAlive(30*time.Second))
 	if err != nil {
@@ -204,11 +211,26 @@ func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{
 		}
 		slog.Info("client new conn ", zap.String("remote addr:", conn.RemoteAddr().String()),
 			zap.String("local addr:", conn.LocalAddr().String()), zap.Uint8("i=", i))
-		tc.conn_pool = append(tc.conn_pool, &GNetConn{Gconn: conn, state: 0})
 	}
 	tc.Client = client
-	time.AfterFunc(10 * time.Second, func() {
-		tc.Send([]byte("hello"))
+	my_util.IntervalRun(10000, 0, func(){
+		nano_time := uint64(time.Now().UnixNano())
+		var rq_dp DataProtocol
+		var ret_err error
+		rq_dp.Head.PackId = 1000
+		rq_dp.Head.RouteId = nano_time
+		rq_dp.Head.HeadUuid = nano_time
+		ping := Ping{Send_time: nano_time}
+		rq_dp.Data, ret_err = PingEncode(ping)
+		if ret_err != nil {
+			return
+		}
+		rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
+		rq_bytes, err := Encode(rq_dp)
+		if err != nil {
+			return
+		}
+		tc.Send(rq_bytes)
 	})
 	return tc
 }
