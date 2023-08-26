@@ -123,5 +123,9 @@ func Route(){
 }
 
 type HandlerFuncST struct {
-
+	RQ           interface{}
+	RQPackId     uint32
+	RS           interface{}
+	RSPackId     uint32
+	HandleFunc   func()
 }

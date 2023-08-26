@@ -145,6 +145,7 @@ func (tc *GTcpClient)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 0, 8192)}
 	tc.connMap.Store(c.LocalAddr().String(), gconn)
 	atomic.StoreInt32(&tc.state, 2)
+
 	return
 }
 
@@ -172,7 +173,6 @@ func (tc *GTcpClient)Send(a_msg []byte) (err error) {
 		//atomic.AddInt32(&gconn.state, 0)
 		return false
 	})
-	
 	return
 }
 
@@ -183,7 +183,7 @@ func (tc *GTcpClient)Stop()(err error){
 	return
 }
 
-func (tc *GTcpClient)RegisterHandler() {
+func (tc *GTcpClient)RegisterPack(a_packid uint32, ) {
 
 }
 
