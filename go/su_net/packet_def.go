@@ -117,6 +117,17 @@ func PongEncode(a_pong Pong)(byte_arr []byte, err error) {
 	byte_arr = buffer.Bytes()
 	return
 }
+func PongDecode(a_data []byte, a_pack_len uint32) (pong Pong, err error) {
+	data_len := uint32(len(a_data))
+	if data_len != a_pack_len - HeadLength {
+		slog.Error("byte length < data length", zap.Uint32("data_len: ", data_len), zap.Uint32("a_pack_len - HeadLength", a_pack_len - HeadLength))
+		err = errors.New("byte length < data length")
+		return
+	}
+	byteBuffer := bytes.NewBuffer(a_data)
+	binary.Read(byteBuffer, binary.BigEndian, &pong.Send_time)
+	return
+}
 ////轮询路由包
 func Route(){
 

@@ -7,12 +7,14 @@ import (
 	"os"
 	"runtime"
 	"time"
+	"context"
+	"sync"
 	// "go/my_util/go_pool"
 
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
 	"go.uber.org/zap"
-	"go/su_net"
+	// "go/su_net"
 )
 
 func a() {
@@ -39,6 +41,50 @@ type student struct {
 	age int
 }
 
+var wg sync.WaitGroup
+
+func worker(ctx context.Context){
+	go worker2(ctx)
+LOOP:
+	for {
+		fmt.Println("worker")
+		time.Sleep(time.Second)
+		select {
+		case <- ctx.Done():
+			break LOOP
+		default:
+		}
+	}
+	wg.Done()
+}
+
+func worker2(ctx context.Context){
+LOOP:
+	for {
+		fmt.Println("worker2")
+		time.Sleep(time.Second)
+		select {
+		case <- ctx.Done():
+			break LOOP
+		default:
+		}
+	}
+}
+
+func worker3(ctx context.Context){
+LOOP:
+	for {
+		fmt.Println("db connecting ...")
+		time.Sleep(time.Millisecond*10)
+		select {
+		case <- ctx.Done():
+			break LOOP
+		default:
+		}
+	}
+	fmt.Println("workder3 done")
+	wg.Done()
+}
 
 func GetTodayZeroTime() int64 {
 	now := time.Now()
@@ -132,8 +178,24 @@ func main() {
 
 	// gts := su_net.CreateServer("9990")
 	// gts.RegisterHandler()
-	gtc := su_net.CreateClient("127.0.0.1:9990",2)
-	gtc.RegisterHandler()
-
-	time.Sleep(time.Second*3600)
+	// gtc := su_net.CreateClient("127.0.0.1:9990",2)
+	// gtc.RegisterHandler()
+	
+	// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
+	// wg.Add(1)
+	// go worker3(ctx)
+	// time.Sleep(time.Second*5)
+	// cancel()
+	// wg.Wait()
+	// fmt.Println("over")
+	// time.Sleep(time.Second*3600)
+	data_slice := make([]byte, 0, 0)
+	str := "88888888"
+	slice := []byte(str)
+	fmt.Println(data_slice, str, slice)	
+	for i := 0; i < 100; i++ {
+		data_slice = append(data_slice, slice...)
+		data_slice = data_slice[7:]
+	}
+	fmt.Println(len(data_slice), cap(data_slice), data_slice)
 }

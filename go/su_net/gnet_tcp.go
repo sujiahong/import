@@ -22,7 +22,7 @@ type GTcpServer struct{
 	async   bool              // 是否异步处理
 	multicore bool
 	connMap  sync.Map         /////ip - 连接映射
-	handlerMap sync.Map
+	regHandlerMap sync.Map    /////注册处理映射 
 }
 
 func (ts *GTcpServer)OnInitComplete(server gnet.Server)(action gnet.Action){
@@ -39,7 +39,7 @@ func (ts *GTcpServer)OnShutdown(server gnet.Server){
 
 func (ts *GTcpServer)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
-	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 0, 8192)}
+	gconn := NewGnetConn(c)
 	ts.connMap.Store(c.RemoteAddr().String(), gconn)
 	return
 }
@@ -54,53 +54,59 @@ func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 	return
 }
 
+func pingHandler(gnc *GNetConn, rs_dp *DataProtocol){
+	rs_dp.Head.PackId = 1001
+	nano_time := uint64(time.Now().UnixNano())
+	rs_dp.Head.HeadUuid = nano_time
+	ping, err := PingDecode(rs_dp.Data, rs_dp.Head.PackLen)
+	if err != nil {
+		slog.Error("Ping 解包失败", zap.Error(err))
+		return
+	}
+	slog.Info("心跳", zap.String("remote addr", c.RemoteAddr().String()),
+		zap.Uint64("ping time", ping.Send_time))
+	pong := Pong{Send_time: nano_time}
+	rs_dp.Data, err = PongEncode(pong)
+	if err != nil {
+		slog.Error("Pong 封包失败", zap.Error(err))
+		return
+	}
+	rs_bytes, err := Encode(rs_dp)
+	if err != nil {
+		slog.Error("rs_dp 封包失败", zap.Error(err))
+		return
+	}
+	gnc.Send(rs_bytes)
+	return
+}
+
 func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("conn recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
 	val, ok := ts.connMap.Load(c.RemoteAddr().String())
 	if ok {
 		gconn := val.(*GNetConn)
-		gconn.RecvData = append(gconn.RecvData, frame...)
-		var dp DataProtocol
-		var ret_err error
-		gconn.RecvData, dp, ret_err = Decode(gconn.RecvData)
-		rs_dp := dp
-		if (ts.async) {
-			ts.pool.SendTask(dp.Head.RouteId, func(){
-				if dp.Head.PackId == 1000 {////处理心跳
-					rs_dp.Head.PackId = 1001
-					nano_time := uint64(time.Now().UnixNano())
-					rs_dp.Head.HeadUuid = nano_time
-					ping, err := PingDecode(rs_dp.Data, rs_dp.Head.PackLen)
-					if err != nil {
-						return
+		gconn.Recv(frame, func(dp DataProtocol){
+			rs_dp := dp
+			if (ts.async) {
+				ts.pool.SendTask(dp.Head.RouteId, func(){
+					if dp.Head.PackId == 1000 {////处理心跳
+						pingHandler(gconn, &rs_dp)
+					}else{
+						_, ok := ts.regHandlerMap.Load(dp.Head.PackId)
+						if ok {
+							slog.Info("包处理", zap.String("remote addr", c.RemoteAddr().String()),
+								zap.Uint32("packid",dp.Head.PackId))
+							
+						}else {
+							slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
+								zap.Uint32("packid",dp.Head.PackId))
+						}
 					}
-					slog.Info("心跳", zap.String("remote addr", c.RemoteAddr().String()),
-						zap.Uint64("ping time", ping.Send_time))
-					pong := Pong{Send_time: nano_time}
-					rs_dp.Data, ret_err = PongEncode(pong)
-					if ret_err != nil {
-						return
-					}
-					rs_bytes, err := Encode(rs_dp)
-					if err != nil {
-						return
-					}
-					c.AsyncWrite(rs_bytes)
-				}else{
-					_, ok := ts.handlerMap.Load(dp.Head.PackId)
-					if ok {
-						slog.Info("包处理", zap.String("remote addr", c.RemoteAddr().String()),
-							zap.Uint32("packid",dp.Head.PackId))
-						
-					}else {
-						slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
-							zap.Uint32("packid",dp.Head.PackId))
-					}
-				}
-			})
-		} else {
-			out = frame
-		}
+				})
+			} else {
+				out = frame
+			}
+		})
 	} else {
 		slog.Error("未保存的链接", zap.String("remote addr", c.RemoteAddr().String()))
 	}
@@ -136,16 +142,17 @@ type GTcpClient struct{
 	*gnet.Client                 //// 客户端
 	remote_addr string           ////远端地址
 	state      int32			/// 客户端状态 0 停止 1 连接中 2 已连接
-	connMap  sync.Map         /////ip - 连接映射
+	connMap  sync.Map           /////ip - 连接映射
+	regHandlerMap sync.Map      /////注册处理映射 
 }
 
 func (tc *GTcpClient)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("client new conn ", zap.String("remote addr", c.RemoteAddr().String()), 
 		zap.String("local addr", c.LocalAddr().String()))
-	gconn := &GNetConn{Gconn: c, RecvData: make([]byte, 0, 8192)}
+	gconn := NewGnetConn(c)
 	tc.connMap.Store(c.LocalAddr().String(), gconn)
 	atomic.StoreInt32(&tc.state, 2)
-
+	gconn.Ping()
 	return
 }
 
@@ -159,8 +166,38 @@ func (tc *GTcpClient)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 	return
 }
 
+func pongHandler(gnc *GNetConn, rs_dp *DataProtocol){
+	pong, err := PongEncode(rs_dp.Data, rs_dp.Head.PackLen)
+	if err != nil {
+		slog.Error("pong 解包失败", zap.Error(err))
+		return
+	}
+	slog.Info("pong心跳", zap.String("remote addr", c.RemoteAddr().String()),
+		zap.Uint64("pong time", pong.Send_time))
+	
+}
+
 func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
 	slog.Info("client recv data", zap.String("data: ", string(frame)))
+	val, ok := tc.connMap.Load(c.LocalAddr().String())
+	if ok {
+		gconn := val.(*GNetConn)
+		gconn.Recv(frame, func(dp DataProtocol){
+			if dp.Head.PackId == 1001 {////处理pong心跳
+				pongHandler(gconn, &dp)
+			}else{
+				_, ok := tc.regHandlerMap.Load(dp.Head.PackId)
+				if ok {
+					slog.Info("包处理", zap.String("remote addr", c.RemoteAddr().String()),
+						zap.Uint32("packid",dp.Head.PackId))
+					
+				}else {
+					slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
+						zap.Uint32("packid",dp.Head.PackId))
+				}
+			}
+		})
+	}
 	return
 }
 
@@ -213,24 +250,24 @@ func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{
 			zap.String("local addr:", conn.LocalAddr().String()), zap.Uint8("i=", i))
 	}
 	tc.Client = client
-	my_util.IntervalRun(10000, 0, func(){
-		nano_time := uint64(time.Now().UnixNano())
-		var rq_dp DataProtocol
-		var ret_err error
-		rq_dp.Head.PackId = 1000
-		rq_dp.Head.RouteId = nano_time
-		rq_dp.Head.HeadUuid = nano_time
-		ping := Ping{Send_time: nano_time}
-		rq_dp.Data, ret_err = PingEncode(ping)
-		if ret_err != nil {
-			return
-		}
-		rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
-		rq_bytes, err := Encode(rq_dp)
-		if err != nil {
-			return
-		}
-		tc.Send(rq_bytes)
-	})
+	// my_util.IntervalRun(10000, 0, func(){
+	// 	nano_time := uint64(time.Now().UnixNano())
+	// 	var rq_dp DataProtocol
+	// 	var ret_err error
+	// 	rq_dp.Head.PackId = 1000
+	// 	rq_dp.Head.RouteId = nano_time
+	// 	rq_dp.Head.HeadUuid = nano_time
+	// 	ping := Ping{Send_time: nano_time}
+	// 	rq_dp.Data, ret_err = PingEncode(ping)
+	// 	if ret_err != nil {
+	// 		return
+	// 	}
+	// 	rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
+	// 	rq_bytes, err := Encode(rq_dp)
+	// 	if err != nil {
+	// 		return
+	// 	}
+	// 	tc.Send(rq_bytes)
+	// })
 	return tc
 }
