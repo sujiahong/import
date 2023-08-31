@@ -32,14 +32,15 @@ const (
 )
 
 type Ping struct {
-	Send_time      uint64 //////发送时间
+	SendTime      uint64 //////发送时间
 }
 
 type Pong struct {
-	Send_time      uint64 //////发送时间
+	SendTime      uint64 //////发送时间
+	PingTime      uint64 //////ping的发送时间
 }
 
-func Encode(dpt DataProtocol) (byte_arr []byte, err error){
+func Encode(dpt *DataProtocol) (byte_arr []byte, err error){
 	byte_arr = make([]byte, 0)
 	buffer := bytes.NewBuffer(byte_arr)
 	if err = binary.Write(buffer, binary.BigEndian, dpt.Head.PackLen); err != nil {
@@ -92,15 +93,15 @@ func PingDecode(a_data []byte, a_pack_len uint32) (ping Ping, err error) {
 		return
 	}
 	byteBuffer := bytes.NewBuffer(a_data)
-	binary.Read(byteBuffer, binary.BigEndian, &ping.Send_time)
+	binary.Read(byteBuffer, binary.BigEndian, &ping.SendTime)
 	return
 }
 func PingEncode(a_ping Ping)(byte_arr []byte, err error) {
 	byte_arr = make([]byte, 0)
 	buffer := bytes.NewBuffer(byte_arr)
-	if err = binary.Write(buffer, binary.BigEndian, a_ping.Send_time); err != nil {
-		slog.Error("write a_ping.Send_time err", zap.Error(err))
-		err = errors.New("write a_ping.Send_time err")
+	if err = binary.Write(buffer, binary.BigEndian, a_ping.SendTime); err != nil {
+		slog.Error("write a_ping.SendTime err", zap.Error(err))
+		err = errors.New("write a_ping.SendTime err")
 		return
 	}
 	byte_arr = buffer.Bytes()
@@ -109,9 +110,14 @@ func PingEncode(a_ping Ping)(byte_arr []byte, err error) {
 func PongEncode(a_pong Pong)(byte_arr []byte, err error) {
 	byte_arr = make([]byte, 0)
 	buffer := bytes.NewBuffer(byte_arr)
-	if err = binary.Write(buffer, binary.BigEndian, a_pong.Send_time); err != nil {
-		slog.Error("write a_pong.Send_time err", zap.Error(err))
-		err = errors.New("write a_pong.Send_time err")
+	if err = binary.Write(buffer, binary.BigEndian, a_pong.SendTime); err != nil {
+		slog.Error("write a_pong.SendTime err", zap.Error(err))
+		err = errors.New("write a_pong.SendTime err")
+		return
+	}
+	if err = binary.Write(buffer, binary.BigEndian, a_pong.PingTime); err != nil {
+		slog.Error("write a_pong.PingTime err", zap.Error(err))
+		err = errors.New("write a_pong.PingTime err")
 		return
 	}
 	byte_arr = buffer.Bytes()
@@ -125,7 +131,8 @@ func PongDecode(a_data []byte, a_pack_len uint32) (pong Pong, err error) {
 		return
 	}
 	byteBuffer := bytes.NewBuffer(a_data)
-	binary.Read(byteBuffer, binary.BigEndian, &pong.Send_time)
+	binary.Read(byteBuffer, binary.BigEndian, &pong.SendTime)
+	binary.Read(byteBuffer, binary.BigEndian, &pong.PingTime)
 	return
 }
 ////轮询路由包

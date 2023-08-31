@@ -54,24 +54,27 @@ func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 	return
 }
 
-func pingHandler(gnc *GNetConn, rs_dp *DataProtocol){
-	rs_dp.Head.PackId = 1001
+func pingHandler(gnc *GNetConn, rq_dp *DataProtocol){
+	var rs_dp DataProtocol
 	nano_time := uint64(time.Now().UnixNano())
+	rs_dp.Head.PackId = 1001
 	rs_dp.Head.HeadUuid = nano_time
-	ping, err := PingDecode(rs_dp.Data, rs_dp.Head.PackLen)
+	rs_dp.Head.RouteId = nano_time
+	ping, err := PingDecode(rq_dp.Data, rq_dp.Head.PackLen)
 	if err != nil {
 		slog.Error("Ping 解包失败", zap.Error(err))
 		return
 	}
-	slog.Info("心跳", zap.String("remote addr", c.RemoteAddr().String()),
-		zap.Uint64("ping time", ping.Send_time))
-	pong := Pong{Send_time: nano_time}
+	slog.Info("心跳", zap.String("remote addr", gnc.Gconn.RemoteAddr().String()),
+		zap.Uint64("ping time", ping.SendTime))
+	pong := Pong{SendTime: nano_time, PingTime: ping.SendTime}
 	rs_dp.Data, err = PongEncode(pong)
 	if err != nil {
 		slog.Error("Pong 封包失败", zap.Error(err))
 		return
 	}
-	rs_bytes, err := Encode(rs_dp)
+	rs_dp.Head.PackLen = uint32(24 + len(rs_dp.Data))
+	rs_bytes, err := Encode(&rs_dp)
 	if err != nil {
 		slog.Error("rs_dp 封包失败", zap.Error(err))
 		return
@@ -85,12 +88,11 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 	val, ok := ts.connMap.Load(c.RemoteAddr().String())
 	if ok {
 		gconn := val.(*GNetConn)
-		gconn.Recv(frame, func(dp DataProtocol){
-			rs_dp := dp
+		gconn.Recv(frame, func(dp *DataProtocol){
 			if (ts.async) {
 				ts.pool.SendTask(dp.Head.RouteId, func(){
 					if dp.Head.PackId == 1000 {////处理心跳
-						pingHandler(gconn, &rs_dp)
+						pingHandler(gconn, dp)
 					}else{
 						_, ok := ts.regHandlerMap.Load(dp.Head.PackId)
 						if ok {
@@ -163,18 +165,24 @@ func (tc *GTcpClient)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 		return
 	}
 	tc.connMap.Delete(c.LocalAddr().String())
+	tc.Reconnect()
 	return
 }
 
 func pongHandler(gnc *GNetConn, rs_dp *DataProtocol){
-	pong, err := PongEncode(rs_dp.Data, rs_dp.Head.PackLen)
+	pong, err := PongDecode(rs_dp.Data, rs_dp.Head.PackLen)
 	if err != nil {
 		slog.Error("pong 解包失败", zap.Error(err))
 		return
 	}
-	slog.Info("pong心跳", zap.String("remote addr", c.RemoteAddr().String()),
-		zap.Uint64("pong time", pong.Send_time))
-	
+	slog.Info("pong心跳", zap.String("remote addr", gnc.Gconn.RemoteAddr().String()),
+		zap.Uint64("pong time", pong.SendTime), zap.Uint64("ping time", pong.PingTime))
+	_, ok := gnc.PingPongMap.Load(pong.PingTime)
+	if ok {
+		gnc.PingPongMap.Delete(pong.PingTime)
+	}else {
+		slog.Error("PingPongMap没有 PingTime key", zap.Uint64("ping time", pong.PingTime))
+	}
 }
 
 func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
@@ -182,9 +190,9 @@ func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 	val, ok := tc.connMap.Load(c.LocalAddr().String())
 	if ok {
 		gconn := val.(*GNetConn)
-		gconn.Recv(frame, func(dp DataProtocol){
+		gconn.Recv(frame, func(dp *DataProtocol){
 			if dp.Head.PackId == 1001 {////处理pong心跳
-				pongHandler(gconn, &dp)
+				pongHandler(gconn, dp)
 			}else{
 				_, ok := tc.regHandlerMap.Load(dp.Head.PackId)
 				if ok {
@@ -220,7 +228,27 @@ func (tc *GTcpClient)Stop()(err error){
 	return
 }
 
-func (tc *GTcpClient)RegisterPack(a_packid uint32, ) {
+func (tc *GTcpClient)Connect() error{
+	conn, err := tc.Client.Dial("tcp", tc.remote_addr)
+	if err != nil {
+		slog.Error("client dial failed", zap.String("addr: ", tc.remote_addr), zap.Error(err))
+		return err
+	}
+	slog.Info("client connect", zap.String("remote addr:", conn.RemoteAddr().String()),
+		zap.String("local addr:", conn.LocalAddr().String()))
+	return nil
+}
+
+func (tc *GTcpClient)Reconnect(){
+	my_util.DelayRun(5000, func(){
+		err := tc.Connect()
+		if err != nil{
+			tc.Reconnect()
+		}
+	})
+}
+
+func (tc *GTcpClient)RegisterPack(a_packid uint32) {
 
 }
 
@@ -239,35 +267,24 @@ func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{
 		slog.Error("client start failed", zap.String("addr: ", a_addr))
 		return nil
 	}
+	tc.Client = client
 	var i uint8
 	for i = 0; i < a_conn_num; i++{
-		conn, err := client.Dial("tcp", a_addr)
-		if err != nil {
-			slog.Error("client dial failed", zap.String("addr: ", a_addr))
-			return nil
-		}
-		slog.Info("client new conn ", zap.String("remote addr:", conn.RemoteAddr().String()),
-			zap.String("local addr:", conn.LocalAddr().String()), zap.Uint8("i=", i))
+		tc.Connect()
 	}
-	tc.Client = client
-	// my_util.IntervalRun(10000, 0, func(){
-	// 	nano_time := uint64(time.Now().UnixNano())
-	// 	var rq_dp DataProtocol
-	// 	var ret_err error
-	// 	rq_dp.Head.PackId = 1000
-	// 	rq_dp.Head.RouteId = nano_time
-	// 	rq_dp.Head.HeadUuid = nano_time
-	// 	ping := Ping{Send_time: nano_time}
-	// 	rq_dp.Data, ret_err = PingEncode(ping)
-	// 	if ret_err != nil {
-	// 		return
-	// 	}
-	// 	rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
-	// 	rq_bytes, err := Encode(rq_dp)
-	// 	if err != nil {
-	// 		return
-	// 	}
-	// 	tc.Send(rq_bytes)
-	// })
+	my_util.IntervalRun(19000, 0, func(){/////定时检查心跳状态
+		var count uint32 = 0
+		tc.connMap.Range(func(k, v interface{})bool{
+			key_str := k.(string)
+			gconn := v.(*GNetConn)
+			slog.Info("定时连接检查", zap.String("key_str: ", key_str))
+			gconn.CheckPong()
+			count++
+			return true
+		})
+		if count == 0 {
+			
+		}
+	})
 	return tc
 }

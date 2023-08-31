@@ -14,7 +14,7 @@ import (
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
 	"go.uber.org/zap"
-	// "go/su_net"
+	 "go/su_net"
 )
 
 func a() {
@@ -176,10 +176,10 @@ func main() {
 	// })
 	// time.Sleep(time.Second*5)
 
-	// gts := su_net.CreateServer("9990")
-	// gts.RegisterHandler()
-	// gtc := su_net.CreateClient("127.0.0.1:9990",2)
-	// gtc.RegisterHandler()
+	gts := su_net.CreateServer("9990")
+	gts.RegisterHandler()
+	gtc := su_net.CreateClient("127.0.0.1:9990",1)
+	gtc.RegisterPack(1)
 	
 	// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
 	// wg.Add(1)
@@ -188,14 +188,14 @@ func main() {
 	// cancel()
 	// wg.Wait()
 	// fmt.Println("over")
-	// time.Sleep(time.Second*3600)
-	data_slice := make([]byte, 0, 0)
-	str := "88888888"
-	slice := []byte(str)
-	fmt.Println(data_slice, str, slice)	
-	for i := 0; i < 100; i++ {
-		data_slice = append(data_slice, slice...)
-		data_slice = data_slice[7:]
-	}
-	fmt.Println(len(data_slice), cap(data_slice), data_slice)
+	time.Sleep(time.Second*3600)
+	// data_slice := make([]byte, 0, 0)
+	// str := "88888888"
+	// slice := []byte(str)
+	// fmt.Println(data_slice, str, slice)	
+	// for i := 0; i < 100; i++ {
+	// 	data_slice = append(data_slice, slice...)
+	// 	data_slice = data_slice[7:]
+	// }
+	// fmt.Println(len(data_slice), cap(data_slice), data_slice)
 }
