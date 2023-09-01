@@ -14,7 +14,9 @@ import (
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
 	"go.uber.org/zap"
-	 "go/su_net"
+	"go/su_net"
+	"github.com/golang/protobuf/proto"
+	"go/proto/Test"
 )
 
 func a() {
@@ -176,11 +178,30 @@ func main() {
 	// })
 	// time.Sleep(time.Second*5)
 
-	gts := su_net.CreateServer("9990")
-	gts.RegisterHandler()
-	gtc := su_net.CreateClient("127.0.0.1:9990",2)
-	gtc.RegisterPack(1)
+	// gts := su_net.CreateServer("9990")
+	// gts.RegisterHandler(10000, &Test.TestRQ{}, 10001, &Test.TestRS{}, func(gnc *su_net.GNetConn,a_shardingid uint64, a_rq proto.Message, a_rs proto.Message){
+	// 	rq := a_rq.(*Test.TestRQ)
+	// 	rs := a_rs.(*Test.TestRS)
+	// 	slog.Info(" recv ", zap.Any("rq", rq))
+	// 	rs.Test1 = rq.Test1
+	// 	rs.Test2 = rq.Test2
+	// 	slog.Info(" finish ", zap.Any("rs", rs))
+	// })
 	
+	
+	gtc := su_net.CreateClient("127.0.0.1:9990",2)
+	gtc.RegisterHandler(10000, &Test.TestRQ{}, 10001, &Test.TestRS{}, func(gnc *su_net.GNetConn,a_shardingid uint64, a_rq proto.Message, a_rs proto.Message){
+		rq := a_rq.(*Test.TestRQ)
+		rs := a_rs.(*Test.TestRS)
+		slog.Info(" client recv ", zap.Any("rq", rq))
+		rs.Test1 = rq.Test1
+		rs.Test2 = rq.Test2
+		slog.Info(" client finish ", zap.Any("rs", rs))
+	})
+	rq := &Test.TestRQ{}
+	rq.Test1 = proto.Uint32(12367864)
+	rq.Test2 = proto.String("测试 一下下")
+	gtc.Send(10000, 10001, rq)
 	// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
 	// wg.Add(1)
 	// go worker3(ctx)

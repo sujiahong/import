@@ -139,11 +139,3 @@ func PongDecode(a_data []byte, a_pack_len uint32) (pong Pong, err error) {
 func Route(){
 
 }
-
-type HandlerFuncST struct {
-	RQ           interface{}
-	RQPackId     uint32
-	RS           interface{}
-	RSPackId     uint32
-	HandleFunc   func()
-}

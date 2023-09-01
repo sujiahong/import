@@ -11,12 +11,23 @@ import (
 
 	"github.com/panjf2000/gnet"
 	"go.uber.org/zap"
+	"github.com/golang/protobuf/proto"
 )
 
 const (
 	PING_PONG_INTERVAL uint32 = 19
 	RECONNECT_INTERVAL uint32 = 5
 )
+
+type HandleFuncType func(*GNetConn,uint64,proto.Message,proto.Message)
+/// 业务处理函数结构
+type HandlerFuncST struct {
+	RQ           proto.Message
+	RQPackId     uint32
+	RS           proto.Message
+	RSPackId     uint32
+	HandleFunc   HandleFuncType
+}
 
 type GTcpServer struct{
 	*gnet.EventServer         ////匿名字段   事件服务
@@ -88,7 +99,7 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol){
 }
 
 func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
-	slog.Info("conn recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
+	slog.Info("server recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
 	val, ok := ts.connMap.Load(c.RemoteAddr().String())
 	if ok {
 		gconn := val.(*GNetConn)
@@ -98,11 +109,35 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 					if dp.Head.PackId == 1000 {////处理心跳
 						pingHandler(gconn, dp)
 					}else{
-						_, ok := ts.regHandlerMap.Load(dp.Head.PackId)
+						v, ok := ts.regHandlerMap.Load(dp.Head.PackId)
 						if ok {
-							slog.Info("包处理", zap.String("remote addr", c.RemoteAddr().String()),
+							slog.Info("server 包处理", zap.String("remote addr", c.RemoteAddr().String()),
 								zap.Uint32("packid",dp.Head.PackId))
-							
+							handleST := v.(*HandlerFuncST)
+							var rs_dp DataProtocol
+							nano_time := uint64(time.Now().UnixNano())
+							rs_dp.Head.PackId = handleST.RSPackId
+							rs_dp.Head.HeadUuid = nano_time
+							rs_dp.Head.RouteId = dp.Head.RouteId
+							err := proto.Unmarshal(dp.Data, handleST.RQ)
+							if err != nil {
+								slog.Error("proto.Unmarshal 失败", zap.Error(err))
+								return
+							}
+							handleST.HandleFunc(gconn, dp.Head.RouteId, handleST.RQ, handleST.RS)
+							bs, err := proto.Marshal(handleST.RS)
+							if err != nil {
+								slog.Error("proto.Marshal 失败", zap.Error(err))
+								return
+							}
+							rs_dp.Data = bs
+							rs_dp.Head.PackLen = uint32(24 + len(rs_dp.Data))
+							rs_bytes, err := Encode(&rs_dp)
+							if err != nil {
+								slog.Error("rs_dp 封包失败", zap.Error(err))
+								return
+							}
+							gconn.Send(rs_bytes)
 						}else {
 							slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
 								zap.Uint32("packid",dp.Head.PackId))
@@ -110,6 +145,7 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 					}
 				})
 			} else {
+				//暂未实现
 				out = frame
 			}
 		})
@@ -126,8 +162,9 @@ func (ts *GTcpServer)Close(){
 	ts.pool.Stop()
 }
 
-func (ts *GTcpServer)RegisterHandler() {
-
+func (ts *GTcpServer)RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_id uint32, a_rs proto.Message, a_hndle HandleFuncType) {
+	st := &HandlerFuncST{RQ: a_rq, RQPackId: a_rq_id, RS: a_rs, RSPackId: a_rs_id, HandleFunc: a_hndle}
+	ts.regHandlerMap.Store(a_rq_id, st)
 }
 
 func CreateServer(a_addr string) *GTcpServer{
@@ -229,11 +266,17 @@ func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 			if dp.Head.PackId == 1001 {////处理pong心跳
 				pongHandler(gconn, dp)
 			}else{
-				_, ok := tc.regHandlerMap.Load(dp.Head.PackId)
+				v, ok := tc.regHandlerMap.Load(dp.Head.PackId)
 				if ok {
-					slog.Info("包处理", zap.String("remote addr", c.RemoteAddr().String()),
+					slog.Info("client 包处理", zap.String("remote addr", c.RemoteAddr().String()),
 						zap.Uint32("packid",dp.Head.PackId))
-					
+					handleST := v.(*HandlerFuncST)
+					err := proto.Unmarshal(dp.Data, handleST.RS)
+					if err != nil {
+						slog.Error("proto.Unmarshal 失败", zap.Error(err))
+						return
+					}
+					handleST.HandleFunc(gconn, dp.Head.RouteId, handleST.RQ, handleST.RS)
 				}else {
 					slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
 						zap.Uint32("packid",dp.Head.PackId))
@@ -244,21 +287,51 @@ func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 	return
 }
 
-func (tc *GTcpClient)Send(a_msg []byte) (err error) {
+func (tc *GTcpClient)send(a_bytes []byte) (err error) {
 	tc.connMap.Range(func(k, v interface{})bool{
 		key_str := k.(string)
 		gconn := v.(*GNetConn)
-		slog.Info("client send data", zap.String("key_str: ", key_str), zap.Int("data len:", len(a_msg)))
-		gconn.Gconn.AsyncWrite(a_msg)
+		slog.Info("client send data", zap.String("key_str: ", key_str), zap.Int("data len:", len(a_bytes)))
+		gconn.Send(a_bytes)
 		//atomic.AddInt32(&gconn.state, 0)
 		return false
 	})
 	return
 }
 
+func (tc *GTcpClient)Send(a_rq_id, a_rs_id uint32, a_msg proto.Message){
+	v, ok := tc.regHandlerMap.Load(a_rs_id)
+	if ok {
+		handleST := v.(*HandlerFuncST)
+		handleST.RQ = a_msg
+		var rq_dp DataProtocol
+		nano_time := uint64(time.Now().UnixNano())
+		rq_dp.Head.PackId = a_rq_id
+		rq_dp.Head.HeadUuid = nano_time
+		rq_dp.Head.RouteId = nano_time
+		bs, err := proto.Marshal(a_msg)
+		if err != nil {
+			slog.Error("proto.Marshal 失败", zap.Error(err))
+			return
+		}
+		rq_dp.Data = bs
+		rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
+		rq_bytes, err := Encode(&rq_dp)
+		if err != nil {
+			slog.Error("rq_dp 封包失败", zap.Error(err))
+			return
+		}
+		slog.Info("client 11111111111 ", zap.Int("data len:", len(rq_bytes)))/////关闭客户端
+		tc.send(rq_bytes)
+	}else {
+		slog.Error("发包未识别的包ID", zap.Uint32("packid",a_rs_id))
+	}
+	return
+}
+
 func (tc *GTcpClient)Stop()(err error){
 	err = tc.Client.Stop()
-	slog.Info("client stop ", zap.String("err:", err.Error()))/////关闭客户端
+	slog.Info("client stop ", zap.Error(err))/////关闭客户端
 	atomic.StoreInt32(&tc.state, 0)
 	return
 }
@@ -284,8 +357,9 @@ func (tc *GTcpClient)Reconnect(){
 	})
 }
 
-func (tc *GTcpClient)RegisterPack(a_packid uint32) {
-
+func (tc *GTcpClient)RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_id uint32, a_rs proto.Message, a_hndle HandleFuncType) {
+	st := &HandlerFuncST{RQ: a_rq, RQPackId: a_rq_id, RS: a_rs, RSPackId: a_rs_id, HandleFunc: a_hndle}
+	tc.regHandlerMap.Store(a_rs_id, st)
 }
 
 func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{

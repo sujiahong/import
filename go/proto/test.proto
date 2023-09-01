@@ -1,0 +1,18 @@
+syntax="proto3";
+//package Test;
+
+option go_package = "./;Test";
+
+/// 10000
+message TestRQ {
+    optional uint32  test1   =  1;
+    optional string  test2   =  2;
+}
+/// 10001
+message TestRS {
+    optional uint32  test1   =  1;
+    optional string  test2   =  2;
+    repeated uint64  test3s  =  3;
+}
+
+///// protoc --go_out=./Test test.proto
