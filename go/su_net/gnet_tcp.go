@@ -6,13 +6,17 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"context"
 	"go/my_util"
 
 	"github.com/panjf2000/gnet"
 	"go.uber.org/zap"
 )
 
-type RecvHandler func() error
+const (
+	PING_PONG_INTERVAL uint32 = 19
+	RECONNECT_INTERVAL uint32 = 5
+)
 
 type GTcpServer struct{
 	*gnet.EventServer         ////匿名字段   事件服务
@@ -65,7 +69,7 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol){
 		slog.Error("Ping 解包失败", zap.Error(err))
 		return
 	}
-	slog.Info("心跳", zap.String("remote addr", gnc.Gconn.RemoteAddr().String()),
+	slog.Info("Ping心跳", zap.String("remote addr", gnc.Gconn.RemoteAddr().String()),
 		zap.Uint64("ping time", ping.SendTime))
 	pong := Pong{SendTime: nano_time, PingTime: ping.SendTime}
 	rs_dp.Data, err = PongEncode(pong)
@@ -117,7 +121,8 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 
 func (ts *GTcpServer)Close(){
 	atomic.StoreInt32(&ts.Stat, 0)
-	//gnet.Stop()
+	ctx, _ := context.WithCancel(context.Background())
+	gnet.Stop(ctx, ts.Addr)
 	ts.pool.Stop()
 }
 
@@ -142,8 +147,10 @@ func CreateServer(a_addr string) *GTcpServer{
 type GTcpClient struct{
 	*gnet.EventServer            ////匿名字段   事件服务
 	*gnet.Client                 //// 客户端
-	remote_addr string           ////远端地址
+	remote_addr string           ////远端连接地址
+	cfgConnNum uint8             //// 配置连接数量
 	state      int32			/// 客户端状态 0 停止 1 连接中 2 已连接
+	reconnectState int32         /// 重连状态  0 停用  1 启用
 	connMap  sync.Map           /////ip - 连接映射
 	regHandlerMap sync.Map      /////注册处理映射 
 }
@@ -154,6 +161,7 @@ func (tc *GTcpClient)OnOpened(c gnet.Conn)(out []byte, action gnet.Action){
 	gconn := NewGnetConn(c)
 	tc.connMap.Store(c.LocalAddr().String(), gconn)
 	atomic.StoreInt32(&tc.state, 2)
+	atomic.StoreInt32(&tc.reconnectState, 0)
 	gconn.Ping()
 	return
 }
@@ -166,6 +174,33 @@ func (tc *GTcpClient)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 	}
 	tc.connMap.Delete(c.LocalAddr().String())
 	tc.Reconnect()
+	return
+}
+
+func (tc *GTcpClient)Tick()(delay time.Duration, action gnet.Action){
+	slog.Info("client tick, 发送 心跳", zap.Int32("tc.reconnectState", atomic.LoadInt32(&tc.reconnectState)), zap.Int32("tc.state", atomic.LoadInt32(&tc.state)))
+	delay = time.Duration(PING_PONG_INTERVAL)*time.Second
+	var count uint8 = 0
+	tc.connMap.Range(func(k, v interface{})bool{
+		key_str := k.(string)
+		gconn := v.(*GNetConn)
+		slog.Info("定时连接检查", zap.String("key_str: ", key_str))
+		gconn.CheckPong()
+		count++
+		return true
+	})
+	if count != tc.cfgConnNum {
+		slog.Error("现有连接数量!=配置连接数量", zap.Uint8("count", count), zap.Uint8("tc.cfgConnNum", tc.cfgConnNum))
+		if atomic.LoadInt32(&tc.reconnectState) == 0 && atomic.LoadInt32(&tc.state) == 2{
+			if tc.cfgConnNum > count {
+				n := tc.cfgConnNum - count
+				var i uint8
+				for i = 0; i < n; i++{
+					tc.Connect()
+				}
+			}
+		}
+	}
 	return
 }
 
@@ -240,7 +275,8 @@ func (tc *GTcpClient)Connect() error{
 }
 
 func (tc *GTcpClient)Reconnect(){
-	my_util.DelayRun(5000, func(){
+	atomic.StoreInt32(&tc.reconnectState, 1)
+	my_util.DelayRun(RECONNECT_INTERVAL*1000, func(){
 		err := tc.Connect()
 		if err != nil{
 			tc.Reconnect()
@@ -255,9 +291,9 @@ func (tc *GTcpClient)RegisterPack(a_packid uint32) {
 func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{
 	var port int
 	flag.IntVar(&port, "port", 9990, "server port")
-	tc := &GTcpClient{remote_addr: a_addr, state: 0}
+	tc := &GTcpClient{remote_addr: a_addr, state: 0, cfgConnNum: a_conn_num}
 
-	client, err := gnet.NewClient(tc, gnet.WithTCPNoDelay(gnet.TCPDelay), gnet.WithTCPKeepAlive(30*time.Second))
+	client, err := gnet.NewClient(tc, gnet.WithTCPNoDelay(gnet.TCPDelay), gnet.WithTCPKeepAlive(30*time.Second), gnet.WithTicker(true))
 	if err != nil {
 		slog.Error("create client failed", zap.String("addr: ", a_addr))
 		return nil
@@ -272,19 +308,5 @@ func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient{
 	for i = 0; i < a_conn_num; i++{
 		tc.Connect()
 	}
-	my_util.IntervalRun(19000, 0, func(){/////定时检查心跳状态
-		var count uint32 = 0
-		tc.connMap.Range(func(k, v interface{})bool{
-			key_str := k.(string)
-			gconn := v.(*GNetConn)
-			slog.Info("定时连接检查", zap.String("key_str: ", key_str))
-			gconn.CheckPong()
-			count++
-			return true
-		})
-		if count == 0 {
-			
-		}
-	})
 	return tc
 }

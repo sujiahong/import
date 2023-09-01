@@ -178,7 +178,7 @@ func main() {
 
 	gts := su_net.CreateServer("9990")
 	gts.RegisterHandler()
-	gtc := su_net.CreateClient("127.0.0.1:9990",1)
+	gtc := su_net.CreateClient("127.0.0.1:9990",2)
 	gtc.RegisterPack(1)
 	
 	// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
