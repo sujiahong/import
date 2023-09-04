@@ -94,6 +94,7 @@ func GetTodayZeroTime() int64 {
 	return zero_time.Unix()
 }
 func main() {
+	slog.Init("client.log")
 	runtime.GOMAXPROCS(5)
 	p, _ := os.Getwd()
 	fmt.Println("111111111 ", p)
@@ -187,7 +188,7 @@ func main() {
 	// 	rs.Test2 = rq.Test2
 	// 	slog.Info(" finish ", zap.Any("rs", rs))
 	// })
-	
+	// gts.Run()
 	
 	gtc := su_net.CreateClient("127.0.0.1:9990",2)
 	gtc.RegisterHandler(10000, &Test.TestRQ{}, 10001, &Test.TestRS{}, func(gnc *su_net.GNetConn,a_shardingid uint64, a_rq proto.Message, a_rs proto.Message){
@@ -200,8 +201,13 @@ func main() {
 	})
 	rq := &Test.TestRQ{}
 	rq.Test1 = proto.Uint32(12367864)
-	rq.Test2 = proto.String("测试 一下下")
-	gtc.Send(10000, 10001, rq)
+	rq.Test2 = proto.String("测试 一下福建省佛教螺蛳粉放松拼接翻领萨法贾发泡剂阿里发放弗拉索夫骄傲卷发福建省佛教啊加热看见啊发饿就饿了就让了；发来送积分啦叠加多怕卷发；‘发发；封疆大吏放假诶下")
+	//time.Sleep()
+	var i uint32 = 0
+	for i = 0; i < 10000; i++ {
+		rq.Test1 = proto.Uint32(rq.GetTest1() + i)
+		gtc.Send(10000, 10001, rq)
+	}
 	// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
 	// wg.Add(1)
 	// go worker3(ctx)

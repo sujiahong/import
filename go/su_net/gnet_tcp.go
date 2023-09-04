@@ -71,10 +71,10 @@ func (ts *GTcpServer)OnClosed(c gnet.Conn, err error)(action gnet.Action){
 
 func pingHandler(gnc *GNetConn, rq_dp *DataProtocol){
 	var rs_dp DataProtocol
-	nano_time := uint64(time.Now().UnixNano())
+	micro_time := uint64(time.Now().UnixNano()/1000)
 	rs_dp.Head.PackId = 1001
-	rs_dp.Head.HeadUuid = nano_time
-	rs_dp.Head.RouteId = nano_time
+	rs_dp.Head.HeadUuid = micro_time
+	rs_dp.Head.RouteId = micro_time
 	ping, err := PingDecode(rq_dp.Data, rq_dp.Head.PackLen)
 	if err != nil {
 		slog.Error("Ping 解包失败", zap.Error(err))
@@ -82,7 +82,7 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol){
 	}
 	slog.Info("Ping心跳", zap.String("remote addr", gnc.Gconn.RemoteAddr().String()),
 		zap.Uint64("ping time", ping.SendTime))
-	pong := Pong{SendTime: nano_time, PingTime: ping.SendTime}
+	pong := Pong{SendTime: micro_time, PingTime: ping.SendTime}
 	rs_dp.Data, err = PongEncode(pong)
 	if err != nil {
 		slog.Error("Pong 封包失败", zap.Error(err))
@@ -99,7 +99,7 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol){
 }
 
 func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
-	slog.Info("server recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)))
+	//slog.Info("server recv data", zap.String("remote addr", c.RemoteAddr().String()), zap.String("data:", string(frame)), zap.Int("data len:", len(frame)))
 	val, ok := ts.connMap.Load(c.RemoteAddr().String())
 	if ok {
 		gconn := val.(*GNetConn)
@@ -115,9 +115,9 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 								zap.Uint32("packid",dp.Head.PackId))
 							handleST := v.(*HandlerFuncST)
 							var rs_dp DataProtocol
-							nano_time := uint64(time.Now().UnixNano())
+							micro_time := uint64(time.Now().UnixNano()/1000)
 							rs_dp.Head.PackId = handleST.RSPackId
-							rs_dp.Head.HeadUuid = nano_time
+							rs_dp.Head.HeadUuid = micro_time
 							rs_dp.Head.RouteId = dp.Head.RouteId
 							err := proto.Unmarshal(dp.Data, handleST.RQ)
 							if err != nil {
@@ -139,8 +139,13 @@ func (ts *GTcpServer)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Ac
 							}
 							gconn.Send(rs_bytes)
 						}else {
+							var count uint8 = 0
+							ts.regHandlerMap.Range(func(k, v interface{})bool{
+								count++
+								return true
+							})
 							slog.Error("未识别的包ID", zap.String("remote addr", c.RemoteAddr().String()), 
-								zap.Uint32("packid",dp.Head.PackId))
+							zap.Uint32("packid",dp.Head.PackId), zap.Uint8("count", count))
 						}
 					}
 				})
@@ -167,15 +172,18 @@ func (ts *GTcpServer)RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_id
 	ts.regHandlerMap.Store(a_rq_id, st)
 }
 
-func CreateServer(a_addr string) *GTcpServer{
-	ts := &GTcpServer{async: true, multicore: true, Addr: a_addr, Stat: 1}
-	ts.pool = my_util.NewGoPool(16, 1024)
-	paddr := "tcp://:"+a_addr
+func (ts * GTcpServer)Run(){
+	paddr := "tcp://:"+ts.Addr
 	err := gnet.Serve(ts, paddr, gnet.WithMulticore(true))
 	if err != nil {
 		slog.Error("create server failed", zap.String("addr: ", paddr), zap.Error(err))
-		return nil
+		return
 	}
+}
+
+func CreateServer(a_addr string) *GTcpServer{
+	ts := &GTcpServer{async: true, multicore: true, Addr: a_addr, Stat: 1}
+	ts.pool = my_util.NewGoPool(16, 1024)
 	return ts
 }
 
@@ -258,7 +266,7 @@ func pongHandler(gnc *GNetConn, rs_dp *DataProtocol){
 }
 
 func (tc *GTcpClient)React(frame []byte, c gnet.Conn)(out []byte, action gnet.Action){
-	slog.Info("client recv data", zap.String("data: ", string(frame)))
+	slog.Info("client recv data", zap.String("data: ", string(frame)), zap.Int("data len:", len(frame)))
 	val, ok := tc.connMap.Load(c.LocalAddr().String())
 	if ok {
 		gconn := val.(*GNetConn)
@@ -305,10 +313,10 @@ func (tc *GTcpClient)Send(a_rq_id, a_rs_id uint32, a_msg proto.Message){
 		handleST := v.(*HandlerFuncST)
 		handleST.RQ = a_msg
 		var rq_dp DataProtocol
-		nano_time := uint64(time.Now().UnixNano())
+		micro_time := uint64(time.Now().UnixNano()/1000)
 		rq_dp.Head.PackId = a_rq_id
-		rq_dp.Head.HeadUuid = nano_time
-		rq_dp.Head.RouteId = nano_time
+		rq_dp.Head.HeadUuid = micro_time
+		rq_dp.Head.RouteId = micro_time
 		bs, err := proto.Marshal(a_msg)
 		if err != nil {
 			slog.Error("proto.Marshal 失败", zap.Error(err))

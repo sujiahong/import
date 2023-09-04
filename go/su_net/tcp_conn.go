@@ -14,13 +14,13 @@ import (
 type GNetConn struct {
 	Gconn gnet.Conn
 	state     int32       /////是否使用 1 使用  0 未使用
-	RecvData []byte     ////网络数据缓存
+	recvData []byte     ////网络数据缓存
 	checkTimes uint8    /// 检测心跳次数
 	PingPongMap sync.Map      /////注册处理映射 
 }
 
 func NewGnetConn(c gnet.Conn) *GNetConn {
-	gnc := &GNetConn{Gconn: c, RecvData: make([]byte, 0, 8192), state: 0, checkTimes: 0}
+	gnc := &GNetConn{Gconn: c, recvData: make([]byte, 0, 0), state: 0, checkTimes: 0}
 	return gnc
 }
 
@@ -29,25 +29,31 @@ func (gnc *GNetConn)Send(a_data []byte){
 }
 
 func (gnc *GNetConn)Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)){
-	gnc.RecvData = append(gnc.RecvData, frame...)
-	var dp DataProtocol
+	gnc.recvData = append(gnc.recvData, frame...)
 	var err error
-	gnc.RecvData, dp, err = Decode(gnc.RecvData)
-	if err != nil {
-		slog.Error("decode data failed", zap.Error(err))
-		return
+	for {
+		var dp DataProtocol
+		gnc.recvData, dp, err = Decode(gnc.recvData)
+		if err != nil {
+			slog.Error("decode data failed", zap.Error(err))
+			return
+		}
+		a_handle_func(&dp)
+		slog.Info("剩余数据长度", zap.Int("recv data len:", len(gnc.recvData)), zap.Any("dp: ", dp))
+		if len(gnc.recvData) <= 0 {
+			return
+		}
 	}
-	a_handle_func(&dp)
 }
 
 func (gnc *GNetConn)Ping(){
-	nano_time := uint64(time.Now().UnixNano())
+	micro_time := uint64(time.Now().UnixNano()/1000)
 	var rq_dp DataProtocol
 	var err error
 	rq_dp.Head.PackId = 1000
-	rq_dp.Head.RouteId = nano_time
-	rq_dp.Head.HeadUuid = nano_time
-	ping := Ping{SendTime: nano_time}
+	rq_dp.Head.RouteId = micro_time
+	rq_dp.Head.HeadUuid = micro_time
+	ping := Ping{SendTime: micro_time}
 	rq_dp.Data, err = PingEncode(ping)
 	if err != nil {
 		slog.Error("Ping 封包失败", zap.Error(err))

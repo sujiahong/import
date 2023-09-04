@@ -10,12 +10,12 @@ import (
 )
 
 var logger *zap.Logger
-func init() {
+func Init(file_name string) {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	encoder := zapcore.NewJSONEncoder(encoderConfig)
 
-	file, _ := os.OpenFile("t.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, _ := os.OpenFile(file_name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	fileWriteSyncer := zapcore.AddSync(file)
 
 	core := zapcore.NewTee(

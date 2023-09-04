@@ -79,7 +79,7 @@ func Decode(a_data []byte) (remain_bytes []byte, dpt DataProtocol, err error){
 		err = errors.New("数据长度过短")
 		return
 	}
-	slog.Info("打印", zap.Any("dpt: ", dpt))
+	//slog.Info("打印", zap.Any("dpt: ", dpt))
 	dpt.Data = a_data[HeadLength:dpt.Head.PackLen]
 	remain_bytes = a_data[dpt.Head.PackLen:]
 	return
