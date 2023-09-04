@@ -3,6 +3,7 @@ module go
 go 1.17
 
 require (
+	github.com/garyburd/redigo v1.6.4 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/panjf2000/ants/v2 v2.4.7 // indirect
 	github.com/panjf2000/gnet v1.6.7 // indirect
