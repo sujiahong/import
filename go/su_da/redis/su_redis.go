@@ -4,6 +4,7 @@ import (
 	"github.com/garyburd/redigo/redis"
 	slog "go/su_log"
 	"go.uber.org/zap"
+	"time"
 )
 type RedisClient struct {
 	pool *redis.Pool   /////redis连接池
@@ -16,11 +17,24 @@ func NewRedisClient(redis_addr string, conn_num int) *RedisClient{
 }
 
 func (rc *RedisClient)Connect()  {
-	rc.pool = redis.NewPool(func()(redis.Conn, error){
-		c, err := redis.Dial("tcp", rc.RemoteAddr)
-		slog.Info("dial ...... ", zap.Any("RemoteAddr: ", rc.RemoteAddr), zap.Error(err))
-		return c, err
-	}, rc.ConnNum)
+	rc.pool = &redis.Pool{
+		MaxIdle: rc.ConnNum,
+		MaxActive:0,
+		IdleTimeout:3000,
+		Wait: true,
+		Dial: func()(redis.Conn, error){
+			c, err := redis.Dial("tcp", rc.RemoteAddr, redis.DialDatabase(1))
+			slog.Info("dial ...... ", zap.Any("RemoteAddr: ", rc.RemoteAddr), zap.Error(err))
+			return c, err
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if time.Since(t) < 1*time.Minute{
+				return nil
+			}
+			_, err := c.Do("PING")
+			return err
+		},
+	}
 	slog.Info("连接redis", zap.Any("RemoteAddr: ", rc.RemoteAddr))
 }
 

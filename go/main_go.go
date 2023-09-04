@@ -18,6 +18,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"go/proto/Test"
 	sredis "go/su_da/redis"
+	"github.com/garyburd/redigo/redis"
 )
 
 func a() {
@@ -230,7 +231,14 @@ func main() {
 	// fmt.Println(len(data_slice), cap(data_slice), data_slice)
 
 	slog.Info("redis 相关测试")
-	sd := sredis.NewRedisClient("localhost:6379", 2)
+	sd := sredis.NewRedisClient("localhost:8379", 16)
 	sd.Connect()
-	sd.Do("set", "1", 1)
+	_, err := sd.Do("set", "1", 1)
+	for {
+		_, err = sd.Do("set", "1", 1)
+		time.Sleep(time.Second)
+	}
+	slog.Info("redis  set", zap.Error(err))
+	r, err := redis.Int(sd.Do("get", "1"))
+	slog.Info("redis  get", zap.Any("r",r), zap.Error(err))
 }

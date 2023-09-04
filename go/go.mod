@@ -4,7 +4,9 @@ go 1.17
 
 require (
 	github.com/garyburd/redigo v1.6.4 // indirect
+	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/jmoiron/sqlx v1.3.5 // indirect
 	github.com/panjf2000/ants/v2 v2.4.7 // indirect
 	github.com/panjf2000/gnet v1.6.7 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
