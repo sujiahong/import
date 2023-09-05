@@ -28,10 +28,11 @@ func (rc *RedisClient)Connect()  {
 			return c, err
 		},
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
-			if time.Since(t) < 1*time.Minute{
-				return nil
-			}
+			// if time.Since(t) < 1*time.Minute{
+			// 	return nil
+			// }
 			_, err := c.Do("PING")
+			slog.Info("Ping. ", zap.Any("RemoteAddr: ", rc.RemoteAddr), zap.Error(err))
 			return err
 		},
 	}

@@ -1,3 +1,11 @@
+/*
+ * @Copyright: 
+ * @file name: File name
+ * @Data: Do not edit
+ * @LastEditor: 
+ * @LastData: 
+ * @Describe: 
+ */
 package su_mysql
 
 import (
@@ -39,7 +47,7 @@ func (mc *MysqlClient)Connect() error{
 }
 
 func (mc *MysqlClient)Close() {
-	err := mc.db.Close()
+	err := mc.Db.Close()
 	slog.Info("mysql Close ", zap.Error(err))
 }
 

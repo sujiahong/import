@@ -234,7 +234,7 @@ func main() {
 	// fmt.Println(len(data_slice), cap(data_slice), data_slice)
 
 	slog.Info("redis 相关测试")
-	sd := sredis.NewRedisClient("localhost:8379", 16)
+	sd := sredis.NewRedisClient("127.0.0.1:8379", 1)
 	sd.Connect()
 	_, err := sd.Do("set", "1", 1)
 	slog.Info("redis  set", zap.Error(err))
