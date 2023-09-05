@@ -38,6 +38,11 @@ func (mc *MysqlClient)Connect() error{
 	return nil
 }
 
+func (mc *MysqlClient)Close() {
+	err := mc.db.Close()
+	slog.Info("mysql Close ", zap.Error(err))
+}
+
 func (mc *MysqlClient)Insert(a_cmd string, a_parm ...interface{}) error {
 	r, err := mc.Db.Exec(a_cmd, a_parm)
 	if err != nil {
