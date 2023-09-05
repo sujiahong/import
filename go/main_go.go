@@ -19,6 +19,7 @@ import (
 	"go/proto/Test"
 	sredis "go/su_da/redis"
 	"github.com/garyburd/redigo/redis"
+	smysql "go/su_da/su_sql"
 )
 
 func a() {
@@ -151,14 +152,16 @@ func main() {
 	// echo := &echoServer{pool: p}
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 	//fmt.Println("@@@@@", GetTodayZeroTime())
-
-	my_util.DelayRun(3000, func(){
-		slog.Info("delay run")
+	tn := time.Now()
+	nano := uint64(tn.UnixNano())
+	nano_second := tn.Nanosecond()
+	my_util.DelayRun(1000, func(){
+		slog.Info("delay run", zap.Any("nano", nano), zap.Any("nano_second", nano_second))
 	})
-	my_util.IntervalRun(1000, 3, func(){
-		slog.Info("interval run", zap.Any("q", 3))
-	})
-	time.Sleep(time.Second*5)
+	// my_util.IntervalRun(1000, 3, func(){
+	// 	slog.Info("interval run", zap.Any("q", 3))
+	// })
+	// time.Sleep(time.Second*4)
 
 	// my_util.CopyFile("./t.log", "1.log")
 
@@ -234,11 +237,11 @@ func main() {
 	sd := sredis.NewRedisClient("localhost:8379", 16)
 	sd.Connect()
 	_, err := sd.Do("set", "1", 1)
-	for {
-		_, err = sd.Do("set", "1", 1)
-		time.Sleep(time.Second)
-	}
 	slog.Info("redis  set", zap.Error(err))
 	r, err := redis.Int(sd.Do("get", "1"))
 	slog.Info("redis  get", zap.Any("r",r), zap.Error(err))
+	slog.Info("mysql 相关测试")
+	sq := smysql.NewMysqlClient("root", "root", "localhost:3306", "tt1", 3, 1)
+	sq.Connect()
+
 }
