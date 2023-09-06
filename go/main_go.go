@@ -234,14 +234,14 @@ func main() {
 	// fmt.Println(len(data_slice), cap(data_slice), data_slice)
 
 	slog.Info("redis 相关测试")
-	sd := sredis.NewRedisClient("127.0.0.1:8379", 1)
+	sd := sredis.NewRedisClient("localhost:8379", 1)
 	sd.Connect()
-	_, err := sd.Do("set", "1", 1)
+	_, err := sd.Do("set", "1", 234231)
 	slog.Info("redis  set", zap.Error(err))
 	r, err := redis.Int(sd.Do("get", "1"))
 	slog.Info("redis  get", zap.Any("r",r), zap.Error(err))
 	slog.Info("mysql 相关测试")
-	sq := smysql.NewMysqlClient("root", "root", "localhost:3306", "tt1", 3, 1)
+	sq := smysql.NewMysqlClient("root", "root", "localhost:6306", "tt1", 3, 1)
 	sq.Connect()
 
 }
