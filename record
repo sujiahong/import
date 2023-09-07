@@ -6,7 +6,10 @@ git remote set-url origin https://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@githu
 docker 使用镜像启动容器命令：
     docker run -itd --name="dev-os" -p 8379:6379 -p 6306:3306 -v /Users/sujiahong/workspace/import:/workspace --privileged=true --platform linux/amd64 sujiahong/centos7-cpp-dev:v6 /usr/sbin/init
 docker 容器生成镜像命令：
-
+    docker commit 51c2400fedbe sujiahong/centos7-cpp-dev:v7
+docker 镜像生成，加载tar文件：
+        docker save -o centos7-cpp-dev.tar sujiahong/centos7-cpp-dev:v7      文件保存在当前目录
+        docker load -i centos7-cpp-dev.tar
 docker images : 查看镜像
 docker ps     ：查看运行容器      docker ps -a    docker rm 容器ID
 

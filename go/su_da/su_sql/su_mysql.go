@@ -52,7 +52,7 @@ func (mc *MysqlClient)Close() {
 }
 
 func (mc *MysqlClient)Insert(a_cmd string, a_parm ...interface{}) error {
-	r, err := mc.Db.Exec(a_cmd, a_parm)
+	r, err := mc.Db.Exec(a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql insert failed", zap.Error(err))
 		return err
@@ -67,7 +67,7 @@ func (mc *MysqlClient)Insert(a_cmd string, a_parm ...interface{}) error {
 }
 
 func (mc *MysqlClient)Update(a_cmd string, a_parm ...interface{}) error {
-	r, err := mc.Db.Exec(a_cmd, a_parm)
+	r, err := mc.Db.Exec(a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql update failed", zap.Error(err))
 		return err
@@ -82,7 +82,7 @@ func (mc *MysqlClient)Update(a_cmd string, a_parm ...interface{}) error {
 }
 
 func (mc *MysqlClient)Delete(a_cmd string, a_parm ...interface{}) error {
-	r, err := mc.Db.Exec(a_cmd, a_parm)
+	r, err := mc.Db.Exec(a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql delete failed", zap.Error(err))
 		return err
@@ -97,7 +97,7 @@ func (mc *MysqlClient)Delete(a_cmd string, a_parm ...interface{}) error {
 }
 
 func (mc *MysqlClient)Select(a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
-	err := mc.Db.Select(a_dest, a_cmd, a_parm)
+	err := mc.Db.Select(a_dest, a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql query failed", zap.Error(err))
 		return err

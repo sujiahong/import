@@ -46,6 +46,11 @@ type student struct {
 	age int
 }
 
+type PINFO struct {
+	Id int  `db:"id"`
+	Name string   `db:"name"`
+}
+
 var wg sync.WaitGroup
 
 func worker(ctx context.Context){
@@ -243,5 +248,9 @@ func main() {
 	slog.Info("mysql 相关测试")
 	sq := smysql.NewMysqlClient("root", "root", "localhost:6306", "tt1", 3, 1)
 	sq.Connect()
-
+	//sq.Insert("insert into t1(id,name) values (?,?)",100,"uosufje")
+	sq.Update("update t1 set name=? where id=?", "dhsbd", 100)
+	var info []PINFO
+	sq.Select(&info, "select id, name from t1 where id=?", 100)
+	slog.Info("mysql  select ", zap.Any("info",info))
 }
