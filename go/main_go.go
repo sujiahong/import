@@ -253,4 +253,13 @@ func main() {
 	var info []PINFO
 	sq.Select(&info, "select id, name from t1 where id=?", 100)
 	slog.Info("mysql  select ", zap.Any("info",info))
+
+	slog.Info("kafka 相关测试")
+
+	var testMap sync.Map
+	testMap.Store(34, "3943")
+	testMap.Store(3, "34")
+	testMap.Store(34, "87889")
+	val, _ := testMap.Load(34)
+	slog.Info("打印", zap.Any("val", val))
 }
