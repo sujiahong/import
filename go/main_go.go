@@ -20,6 +20,7 @@ import (
 	sredis "go/su_da/redis"
 	"github.com/garyburd/redigo/redis"
 	smysql "go/su_da/su_sql"
+	skafka "go/su_da/kafka"
 )
 
 func a() {
@@ -255,11 +256,18 @@ func main() {
 	slog.Info("mysql  select ", zap.Any("info",info))
 
 	slog.Info("kafka 相关测试")
-
-	var testMap sync.Map
-	testMap.Store(34, "3943")
-	testMap.Store(3, "34")
-	testMap.Store(34, "87889")
-	val, _ := testMap.Load(34)
-	slog.Info("打印", zap.Any("val", val))
+	kp := skafka.NewKafkaProducer([]string{"127.0.0.1:7000"}, "test", true)
+	kp.Send("1234234233")
+	kc := skafka.NewKafkaConsumer([]string{"127.0.0.1:7000"}, "test", "test1", func(a_pa_id int32){
+		slog.Info("kafka 消费", zap.Int32("partion_id", a_pa_id))
+	})
+	time.Sleep(time.Second)
+	kc.ConsumeAllPartion()
+	time.Sleep(time.Second*10)
+	// var testMap sync.Map
+	// testMap.Store(34, "3943")
+	// testMap.Store(3, "34")
+	// testMap.Store(34, "87889")
+	// val, _ := testMap.Load(34)
+	// slog.Info("打印", zap.Any("val", val))
 }

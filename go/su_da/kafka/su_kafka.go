@@ -4,6 +4,7 @@ import (
 	slog "go/su_log"
 	"go.uber.org/zap"
 	"github.com/IBM/sarama"
+	"go/my_util"
 	"time"
 	"strconv"
 	"context"
@@ -44,6 +45,7 @@ func NewKafkaProducer(a_addr []string, a_topic string, a_async bool) *KafkaProdu
 	kp.ctx, kp.cancel = context.WithCancel(context.Background())
 	go kp.handleSuccess()
 	go kp.handleError()
+	slog.Info("创建kafka生成者完成", zap.Any("a_topic", a_topic), zap.Any("a_async", a_async))
 	return kp
 }
 
@@ -94,6 +96,7 @@ func (kp *KafkaProducer)Close() error {
 		return kp.client.Close()
 	}
 	kp.cancel()
+	return nil
 }
 
 func (kp *KafkaProducer)handleSuccess(){
@@ -130,13 +133,14 @@ func (kp * KafkaProducer)handleError(){
 	}
 }
 
-type HandleFunc func()
+type HandleFunc func(a_partion_id int32)
 type KafkaConsumer struct {
 	AddrSlice     []string
 	Topic         string
 	client        sarama.Consumer
 	ClientID      string
 	processFunc   HandleFunc
+	pool          *my_util.GoPool
 }
 
 func NewKafkaConsumer(a_addr []string, a_topic, a_cli_id string, a_func HandleFunc) *KafkaConsumer{
@@ -148,6 +152,7 @@ func NewKafkaConsumer(a_addr []string, a_topic, a_cli_id string, a_func HandleFu
 	config.Consumer.MaxProcessingTime = 10 * time.Second
 
 	kc := &KafkaConsumer{AddrSlice: a_addr, Topic: a_topic, ClientID: a_cli_id, processFunc: a_func}
+	kc.pool = my_util.NewGoPool(8, 1024)
 	var err error
 	kc.client, err = sarama.NewConsumer(a_addr, nil)
 	if err != nil {
@@ -163,37 +168,32 @@ func (kc *KafkaConsumer)ConsumeAllPartion(){
 		slog.Error("kafka get paritions failed", zap.Error(err))
 		return
 	}
-	for parition := range partitionList {
-		pc, err := kc.client.ConsumePartition(kc.Topic, int32(parition), sarama.OffsetNewest)
-		if err != nil {
-			slog.Error("failed to start consumer for partition", zap.Error(err))
-			return
-		}
-		defer pc.AsyncClose()
-		go func(sarama.PartitionConsumer){
-			for msg := range pc.Messages() {
-				slog.Info("消息", zap.Int32("msg.Partition", msg.Partition), zap.Int64("msg.Offset", msg.Offset),
-					zap.Any("msg.Key", msg.Key), zap.Any("msg.Value", msg.Value))
-			}
-		}(pc)
+	for parition_id := range partitionList {
+		go kc.ConsumeOnePartion(int32(parition_id))
 	}
 }
 
-func (kc *KafkaConsumer)ConsumeOnePartion(a_id int32){
-	pc, err := kc.client.ConsumePartition(kc.Topic, a_id, sarama.OffsetNewest)
+func (kc *KafkaConsumer)ConsumeOnePartion(a_partion_id int32){
+	pc, err := kc.client.ConsumePartition(kc.Topic, a_partion_id, sarama.OffsetNewest)
 	if err != nil {
 		slog.Error("failed to start consumer for partition", zap.Error(err))
 		return
 	}
-	defer pc.AsyncClose()
-	
-	for msg := range pc.Messages() {
-		slog.Info("消息", zap.Int32("msg.Partition", msg.Partition), zap.Int64("msg.Offset", msg.Offset),
-			zap.Any("msg.Key", msg.Key), zap.Any("msg.Value", msg.Value))
-		kc.processFunc()
-	}
+	go func(){
+		my_util.RecoverPanic()
+		defer pc.AsyncClose()
+		for msg := range pc.Messages() {
+			slog.Info("消息", zap.Int32("msg.Partition", msg.Partition), zap.Int64("msg.Offset", msg.Offset),
+				zap.Any("msg.Key", msg.Key), zap.Any("msg.Value", msg.Value), zap.Int32("partion_id", a_partion_id))
+			kc.pool.SendTask(uint64(msg.Offset), func(){
+				kc.processFunc(a_partion_id)
+			})
+		}
+		slog.Info("消费一个分区结束", zap.Int32("partion_id", a_partion_id))
+	}()
 }
 
 func (kc *KafkaConsumer)Close() {
 	kc.client.Close()
+	kc.pool.Stop()
 }
