@@ -111,17 +111,18 @@ func main() {
 	fmt.Println(li)
 	my_util.Classifier(li)
 
-	go func(s string) {
-		for i := 0; i < 2; i++ {
-			fmt.Println(s)
-		}
-	}("world")
+	// go func(s string) {
+	// 	for i := 0; i < 2; i++ {
+	// 		fmt.Println(s)
+	// 	}
+	// }("world")
 
 	for i := 0; i < 2; i++ {
 		runtime.Gosched()
 		fmt.Println("hello")
 	}
 
+	fmt.Println(my_util.GetTodayDate())
 	
 	// go a()
 	// time.Sleep(time.Second)
@@ -160,9 +161,10 @@ func main() {
 	//fmt.Println("@@@@@", GetTodayZeroTime())
 	tn := time.Now()
 	nano := uint64(tn.UnixNano())
-	nano_second := tn.Nanosecond()
 	my_util.DelayRun(1000, func(){
-		slog.Info("delay run", zap.Any("nano", nano), zap.Any("nano_second", nano_second))
+		zero := 0
+		x := nano / uint64(zero)
+		slog.Info("delay run", zap.Any("nano", nano), zap.Any("x", x))
 	})
 	// my_util.IntervalRun(1000, 3, func(){
 	// 	slog.Info("interval run", zap.Any("q", 3))

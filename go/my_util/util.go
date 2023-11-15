@@ -2,10 +2,12 @@ package my_util
 
 import (
 	"runtime"
+    "runtime/debug"
 	"fmt"
     "time"
     "os"
     "io"
+    "math/rand"
 	"path/filepath"
     slog "go/su_log"
     "go.uber.org/zap"
@@ -55,9 +57,19 @@ func GetTodayZeroTime() int64 {
 	return zero_time.Unix()
 }
 
+func GetTodayDate() uint32 {
+	now := time.Now()
+	year := now.Year()
+	month := now.Month()
+	day := now.Day()
+	date := year*10000 + int(month)*100 + day
+	return uint32(date)
+}
+
 func RecoverPanic() {
     if err := recover(); err != nil {
-        slog.Error("error :", zap.Any("err:", err))
+        fmt.Println("panic: recovered err=", err, string(debug.Stack()))
+        slog.Error("panic: recovered err", zap.Any("err:", err), zap.Any("stack:", string(debug.Stack())))
     }
 }
 
@@ -133,4 +145,12 @@ func CopyFile(a_src_file, a_dst_file string) {
             break
         }
     }
+}
+
+/////[min,max]范围内随机
+func RandRange(min, max int64) int64 {
+	if max < min  {
+		return 0
+	}
+	return rand.Int63() % (max-min+1) + min
 }
