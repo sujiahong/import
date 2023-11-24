@@ -7,8 +7,11 @@ import (
 	"os"
 	"runtime"
 	"time"
+	//"strings"
 	"context"
 	"sync"
+	"strconv"
+	"hash/crc32"
 	// "go/my_util/go_pool"
 
 	// "github.com/panjf2000/gnet"
@@ -102,11 +105,20 @@ func GetTodayZeroTime() int64 {
 	zero_time := time.Date(now.Year(), now.Month(), now.Day(),0,0,0,0,now.Location())
 	return zero_time.Unix()
 }
+
+func GetCrc32Sum(userId, peerId uint64, zero_time uint32) uint32 {
+	str := strconv.FormatUint(userId, 10) + strconv.FormatUint(peerId, 10) + strconv.FormatUint(uint64(zero_time), 10)
+	return crc32.ChecksumIEEE([]byte(str))
+}
 func main() {
 	slog.Init("client.log")
+	tn := time.Now()
 	runtime.GOMAXPROCS(5)
 	p, _ := os.Getwd()
-	fmt.Println("111111111 ", p)
+	tm_str := tn.String()
+
+	fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
+	
 	var li = my_util.GetLogFileLine()
 	fmt.Println(li)
 	my_util.Classifier(li)
@@ -124,6 +136,7 @@ func main() {
 
 	fmt.Println(my_util.GetTodayDate())
 	
+	fmt.Println(GetCrc32Sum(1, 2, 3))
 	// go a()
 	// time.Sleep(time.Second)
 
@@ -159,7 +172,7 @@ func main() {
 	// echo := &echoServer{pool: p}
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 	//fmt.Println("@@@@@", GetTodayZeroTime())
-	tn := time.Now()
+	
 	nano := uint64(tn.UnixNano())
 	my_util.DelayRun(1000, func(){
 		zero := 0

@@ -5,12 +5,14 @@ import (
     "runtime/debug"
 	"fmt"
     "time"
+    "sync"
     "os"
     "io"
     "math/rand"
 	"path/filepath"
     slog "go/su_log"
     "go.uber.org/zap"
+    "errors"
 )
 /*
 channel的注意事项
@@ -64,6 +66,12 @@ func GetTodayDate() uint32 {
 	day := now.Day()
 	date := year*10000 + int(month)*100 + day
 	return uint32(date)
+}
+
+func GetTimePrintString() string {
+    tn := time.Now()
+    tm_str := tn.String()
+    return tm_str[0:27]
 }
 
 func RecoverPanic() {
@@ -153,4 +161,22 @@ func RandRange(min, max int64) int64 {
 		return 0
 	}
 	return rand.Int63() % (max-min+1) + min
+}
+
+func WaitGroupWithTimeout(wg *sync.WaitGroup, timeout uint32) error{
+	c := make(chan int)
+	defer close(c)
+	go func(){
+		defer RecoverPanic()
+		wg.Wait()
+		c <- 0
+	}()
+	select {
+	case <-c:
+		fmt.Println("wait group finish!!!")
+		return nil
+	case <-time.After(time.Duration(timeout)*time.Millisecond):
+		fmt.Println("warn: timeout waiting for wait group!!!")
+		return errors.New("timeout waiting for wait group")
+	}
 }

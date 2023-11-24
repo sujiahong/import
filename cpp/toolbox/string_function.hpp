@@ -171,6 +171,20 @@ std::string Set2String(const std::set<T>& obj_set, int max_disp_count = 5) {
     oss << "}";
     return oss.str();
 }
+template<class T>
+std::string Set2String(const std::set<T>& a_set) {
+    std::ostringstream oss;
+    oss << "{";
+    typename std::set<T>::const_iterator it = a_set.begin();
+    while (it != a_set.end()) {
+        oss << *it;
+        it++;
+        if(it != a_set.end())
+            oss << ",";
+    }
+    oss << "}";
+    return oss.str();
+}
 
 template<class T>
 std::string Object2String(const T& obj)/////这个怎么实现
