@@ -3,6 +3,8 @@
 
 #include <functional>
 #include <pthread.h>
+#include "../multi_thread/thread_pool.hpp"
+#include <tuple>
 
 /*
 type __sync_fetch_and_add (type *ptr, type value, ...)
@@ -44,7 +46,7 @@ void __sync_lock_release (type *ptr, ...)
 
 namespace su
 {
-/////异步执行，保证主线程不会提前结束
+/////异步执行，保证主线程不会提前结束 ////创建线程
 static int AsyncExecute(void* (*a_func)(void*) , void* a_arg)
 {
     int ret = 0;
@@ -83,6 +85,64 @@ static int SyncExecute(void* (*a_func)(void*) , void* a_arg)
         return ret;
     }
     return ret;
+}
+
+////////////////////////////////////////////////////////////////////
+template<typename... Args>
+class CommonTask: public su::TaskBase
+{
+private:
+    std::tuple<Args...> args_;
+    std::function<void(const std::tuple<Args...>&)> func_;
+public:
+    CommonTask(std::function<void(const std::tuple<Args...>&)> func, Args... args):func_(func),args_(args...)
+    {}
+    ~CommonTask()
+    {}
+    void RunOnce(unsigned int a_thread_id)
+    {
+        func_(args_);
+    }
+};
+class CommonTaskWithoutParm: public su::TaskBase
+{
+private:
+    std::function<void()> func_;
+public:
+    CommonTaskWithoutParm(std::function<void()> func):func_(func)
+    {}
+    ~CommonTaskWithoutParm()
+    {}
+    virtual void RunOnce(unsigned int a_thread_id)
+    {
+        func_();
+    }
+};
+
+class CommonMultiWorks
+{
+private:
+    su::ThreadPool td_pool_;
+public:
+    CommonMultiWorks(unsigned int a_num):td_pool_(a_num)
+    {
+        td_pool_.Start();
+    }
+    ~CommonMultiWorks()
+    {}
+
+    // template<typename... Args>
+    //void RunTask(std::function<void(const std::tuple<Args...>&)> func, Args... args);
+    inline void RunTask(std::function<void()> func)
+    {
+        td_pool_.PushTask(new CommonTaskWithoutParm(func));
+    }
+};
+static CommonMultiWorks* g_multi_works = new CommonMultiWorks(4);
+/////////线程池异步执行
+static void AsyncExecute(std::function<void()> a_func)//////对外接口
+{
+    g_multi_works->RunTask(a_func);
 }
 
 }
