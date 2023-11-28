@@ -27,9 +27,9 @@ template<typename T>
 class TaskPool: public Noncopyable
 {
 private:
-    std::list<T> m_task_list_;
     mutable LockMutex m_mutex_;
     Condition m_cond_;   
+    std::list<T> m_task_list_;
 public:
     TaskPool():m_mutex_(),m_cond_(m_mutex_),m_task_list_()
     {}
