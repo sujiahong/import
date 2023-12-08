@@ -20,7 +20,7 @@ type GNetConn struct {
 }
 
 func NewGnetConn(c gnet.Conn) *GNetConn {
-	gnc := &GNetConn{Gconn: c, recvData: make([]byte, 0, 0), state: 0, checkTimes: 0}
+	gnc := &GNetConn{Gconn: c, recvData: make([]byte, 0, 4096), state: 0, checkTimes: 0}
 	return gnc
 }
 

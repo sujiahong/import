@@ -62,7 +62,6 @@ func Encode(dpt *DataProtocol) (byte_arr []byte, err error){
 	byte_arr = buffer.Bytes()
 	return
 }
-
 func Decode(a_data []byte) (remain_bytes []byte, dpt DataProtocol, err error){
 	tmp_len := uint32(len(a_data))
 	if tmp_len < HeadLength{
@@ -81,6 +80,35 @@ func Decode(a_data []byte) (remain_bytes []byte, dpt DataProtocol, err error){
 	}
 	//slog.Info("打印", zap.Any("dpt: ", dpt))
 	dpt.Data = a_data[HeadLength:dpt.Head.PackLen]
+	remain_bytes = a_data[dpt.Head.PackLen:]
+	return
+}
+
+func Encode1(dpt *DataProtocol) (byte_arr []byte, err error){
+	byte_arr = make([]byte, HeadLength+len(dpt.Data))
+	binary.BigEndian.PutUint32(byte_arr[0:4], dpt.Head.PackLen)
+	binary.BigEndian.PutUint32(byte_arr[4:8], dpt.Head.PackId)
+	binary.BigEndian.PutUint32(byte_arr[8:16], dpt.Head.RouteId)
+	binary.BigEndian.PutUint32(byte_arr[16:24], dpt.Head.HeadUuid)
+	//copy(byte_arr[24:], dpt.Data)
+	byte_arr = append(byte_arr, dpt.Data)
+	return
+}
+func Decode1(a_data []byte) (remain_bytes []byte, dpt DataProtocol, err error){
+	packLen := binary.BigEndian.Uint32(a_data[0:4])
+	tmp_len := uint32(len(a_data))
+	if tmp_len < packLen {
+		slog.Error("a_data length < decode length", zap.Uint32("tmp_len: ", tmp_len), zap.Uint32("decode len:", dpt.Head.PackLen))
+		err = errors.New("数据长度过短")
+		return
+	}
+	dpt.Head.PackLen = packLen
+	dpt.Head.PackId = binary.BigEndian.Uint32(a_data[4:8])
+	dpt.Head.RouteId = binary.BigEndian.Uint64(a_data[8:16])
+	dpt.Head.HeadUuid = binary.BigEndian.Uint64(a_data[16:24])
+ 
+	//slog.Info("打印", zap.Any("dpt: ", dpt))
+	dpt.Data = a_data[HeadLength:packLen]
 	remain_bytes = a_data[dpt.Head.PackLen:]
 	return
 }
