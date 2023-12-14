@@ -59,6 +59,16 @@ func GetTodayZeroTime() int64 {
 	zero_time := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	return zero_time.Unix()
 }
+func GetZeroTime(timestamp uint32) int64 {
+	var t time.Time
+	if timestamp == 0 {
+		t = time.Now()
+	}else {
+		t = time.Unix(int64(timestamp), 0)
+	}
+	zero_time := time.Date(t.Year(), t.Month(), t.Day(), 0,0,0,0, t.Location())
+	return zero_time.Unix()
+}
 
 func GetTodayDate() uint32 {
 	now := time.Now()
