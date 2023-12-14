@@ -135,7 +135,7 @@ func main() {
 	}
 
 	fmt.Println(my_util.GetTodayDate())
-	
+	fmt.Println("1231  ", my_util.GetZeroTime(0))
 	fmt.Println(GetCrc32Sum(1, 2, 3))
 	// go a()
 	// time.Sleep(time.Second)
