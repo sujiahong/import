@@ -26,6 +26,16 @@ import (
 	skafka "go/su_da/kafka"
 )
 
+/*
+#include <stdio.h>
+
+void hi()
+{
+	printf("hello world!\n");
+}
+*/
+import "C"
+
 func a() {
 	aa := "aaaa"
 	for i := 1; i < 10; i++ {
@@ -116,7 +126,7 @@ func main() {
 	runtime.GOMAXPROCS(5)
 	p, _ := os.Getwd()
 	tm_str := tn.String()
-
+	C.hi();
 	fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
 	
 	var li = my_util.GetLogFileLine()

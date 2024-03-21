@@ -57,6 +57,8 @@ private:
                     delete task_ptr;
                     task_ptr = 0;
                 }
+            }else {
+                usleep(100000);
             }
         }
         return 0;
