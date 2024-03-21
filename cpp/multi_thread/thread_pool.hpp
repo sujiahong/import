@@ -9,6 +9,7 @@
 #include "thread_lock.hpp"
 #include "task_pool.hpp"
 #include <pthread.h>
+#include <unistd.h>
 #include <list>
 
 #define MAX_THREAD_NUM 50
