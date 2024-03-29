@@ -34,5 +34,8 @@ struct Polygon////顺序排列的
     std::vector<Point> point_vec;
 };
 
+struct sdsdr {
+    char buf[];
+}
 
 #endif

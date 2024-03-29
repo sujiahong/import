@@ -30,7 +30,7 @@ public:
         ::close(m_sock_fd_);
     }
 public:
-    int Fd() const {return m_sock_fd_;}
+    inline int Fd() const {return m_sock_fd_;}
     int Create(int a_sa_family)
     {
         m_sock_ver_ = a_sa_family;
