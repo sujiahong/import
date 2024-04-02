@@ -21,7 +21,9 @@ class Socket: public Noncopyable
 {
 private:
     int m_sock_fd_;
-    int m_sock_ver_;//////标记ipv4 or ipv6
+    int m_sock_ver_;//////标记ipv4 AF_INET or ipv6 AF_INET6
+    int m_type_; //SOCK_STREAM   SOCK_DGRAM
+    int m_protocol_;
 public:
     explicit Socket(){m_sock_fd_=-1;m_sock_ver_=0;}
     explicit Socket(int a_sock_fd, int a_sa_family):m_sock_fd_(a_sock_fd),m_sock_ver_(a_sa_family){}
@@ -44,11 +46,23 @@ public:
         }
         return sock_fd;
     }
-    void BindAddress(const std::string a_ip, const unsigned short a_port)
+    void Bind(const std::string a_ip, const unsigned short a_port)
     {
         struct sockaddr_in local_addr;
         local_addr.sin_family = AF_INET;
         local_addr.sin_addr.s_addr = inet_addr(a_ip.c_str());
+        local_addr.sin_port = htons(a_port);
+        int ret = ::bind(m_sock_fd_, (struct sockaddr*)&local_addr, sizeof(local_addr));
+        if (ret < 0)
+        {
+            ///打印日志
+        }
+    }
+    void Bind(const unsigned short a_port)
+    {
+        struct sockaddr_in local_addr;
+        local_addr.sin_family = AF_INET;
+        local_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
         local_addr.sin_port = htons(a_port);
         int ret = ::bind(m_sock_fd_, (struct sockaddr*)&local_addr, sizeof(local_addr));
         if (ret < 0)
