@@ -12,6 +12,7 @@ import (
 	"sync"
 	"strconv"
 	"hash/crc32"
+	"math"
 	// "go/my_util/go_pool"
 
 	// "github.com/panjf2000/gnet"
@@ -130,7 +131,7 @@ func main() {
 	fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
 	
 	var li = my_util.GetLogFileLine()
-	fmt.Println(li)
+	fmt.Println(li, math.Ceil(0.03))
 	my_util.Classifier(li)
 
 	// go func(s string) {

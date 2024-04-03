@@ -1,5 +1,5 @@
 /////////////////////
-////socket 封装
+////os socket 封装
 ////////////////////
 
 #ifndef __SOCKET_H__
@@ -20,23 +20,27 @@ namespace su
 class Socket: public Noncopyable
 {
 private:
-    int m_sock_fd_;
     int m_sock_ver_;//////标记ipv4 AF_INET or ipv6 AF_INET6
     int m_type_; //SOCK_STREAM   SOCK_DGRAM
-    int m_protocol_;
+    int m_sock_fd_;
 public:
-    explicit Socket(){m_sock_fd_=-1;m_sock_ver_=0;}
-    explicit Socket(int a_sock_fd, int a_sa_family):m_sock_fd_(a_sock_fd),m_sock_ver_(a_sa_family){}
+    Socket() = delete;
+    Socket(int a_sa_family, int a_type):m_sock_ver_(a_sa_family),m_type_(a_type)
+    {
+        m_sock_fd_ = Create(a_sa_family, a_type);
+    }
     ~Socket()
     {
         ::close(m_sock_fd_);
     }
 public:
     inline int Fd() const {return m_sock_fd_;}
-    int Create(int a_sa_family)
+    int Create(int a_sa_family, int a_type)
     {
         m_sock_ver_ = a_sa_family;
-        int sock_fd = ::socket(a_sa_family, SOCK_STREAM, IPPROTO_TCP);
+        m_type_ = a_type;
+        int sock_fd = ::socket(a_sa_family, m_type_, 0);
+        assert(sock_fd < 0);
         if (m_sock_fd_ < 0)
             m_sock_fd_ = sock_fd;
         else
@@ -72,7 +76,7 @@ public:
     }
     void Listen()
     {
-        int ret = ::listen(m_sock_fd_, 10);
+        int ret = ::listen(m_sock_fd_, 128);
         if (ret < 0)
         {
             ///打印日志
@@ -159,13 +163,35 @@ public:
         flags |= FD_CLOEXEC;
         ::fcntl(a_sock_fd, F_SETFD, flags);
     }
-    static void ExtractIPAndPortFromSockAddr(struct sockaddr* a_addr, std::string& a_peer_ip, unsigned short& a_peer_port)
+    static void ExtractIPAndPortFromSockAddr(struct sockaddr* a_addr, std::string& a_ip, unsigned short& a_port)
     {
         struct sockaddr_in* addr_in = (struct sockaddr_in*)&a_addr;
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(addr_in->sin_addr.s_addr), ip_str, sizeof(ip_str));
-        a_peer_port = ntohs(addr_in->sin_port);
-        a_peer_ip = ip_str;
+        a_port = ntohs(addr_in->sin_port);
+        a_ip = ip_str;
+    }
+    static int GetSelfIPAndPort(int a_fd, std::string& a_ip, unsigned short& a_port)
+    {
+        struct sockaddr addr;
+        socklen_t addrLen = sizeof(addr);
+        int ret = ::getsockname(a_fd, &addr, &addrLen);
+        if (ret != 0){
+            return ret;
+        }
+        ExtractIPAndPortFromSockAddr(&addr, a_ip, a_port);
+        return 0;
+    }
+    static int GetPeerIPAndPort(int a_fd, std::string& a_ip, unsigned short& a_port)
+    {
+        struct sockaddr addr;
+        socklen_t addrLen = sizeof(addr);
+        int ret = ::getpeername(a_fd, &addr, &addrLen);
+        if (ret != 0){
+            return ret;
+        }
+        ExtractIPAndPortFromSockAddr(&addr, a_ip, a_port);
+        return 0;
     }
 };
 }
