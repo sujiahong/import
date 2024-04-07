@@ -60,6 +60,26 @@ void DisorderArray(std::vector<T>& a_vec)
     }
 }
 
+template<typename T>
+void DisorderArrayV1(std::vector<T>& a_vec)
+{
+    if (a_vec.size() == 0)
+    {
+        return;
+    }
+    T tmp;
+    unsigned int rand_num = 0;
+    srand(SecondTime());
+    for(unsigned int i = a_vec.size()-1; i > 0; i--)
+    {
+        rand_num = RangeRandom(0, i);
+        //std::cout << "rand_num="<<rand_num <<" i="<<i<<std::endl;
+        tmp = a_vec[i];
+        a_vec[i] = a_vec[rand_num];
+        a_vec[rand_num] = tmp;
+    }
+}
+
 //////数组乱序////有问题,会出现有的排列出现的概率高一点
 template<typename T>
 void DisorderArrayV2(std::vector<T>& a_vec)

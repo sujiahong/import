@@ -20,8 +20,10 @@ class Channel: public Noncopyable
     typedef std::function<void(unsigned int)> READ_EVENT_CALLBACK_TYPE;
 private:
     int fd_;
-    int m_events_;
+    uint32_t m_events_;
+    uint32_t m_ready_events_;
     int m_index_;
+    bool m_is_in_epoll_;
 
     EVENT_CALLBACK_TYPE m_write_callback_;
     EVENT_CALLBACK_TYPE m_close_callback_;
@@ -36,7 +38,10 @@ public:
     inline int Fd() const{ return fd_;}
     inline int Index() { return m_index_; }
     inline void SetIndex(int idx) { m_index_ = idx; }
-    inline int Events() const {return m_events_;}
+    inline uint32_t Events() const {return m_events_;}
+    inline bool GetInEpoll() const {return m_is_in_epoll_;}
+    inline void SetInEpoll() { m_is_in_epoll_ = true;}
+    inline void SetReadyEvents(uint32_t a_evts) { m_ready_events_= a_evts;}
     
     inline bool IsNoneEvent() const {return m_events_ == NONE_EVENT;}
     inline bool IsWriting() const { return m_events_ & WRITE_EVENT; }

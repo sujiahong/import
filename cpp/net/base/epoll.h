@@ -10,6 +10,7 @@
 #include <sys/epoll.h>
 #include "../../toolbox/original_dependence.hpp"
 #include "../../toolbox/time_function.hpp"
+#include "channel.h"
 
 namespace su {
 /*
@@ -41,7 +42,7 @@ struct epoll_event {
     epoll_data_t data; // User data variable 
 };
 */
-#define MAX_EVENT_NUM 2000
+#define MAX_EVENT_NUM 20000
 
 class EPoll: public Noncopyable
 {
@@ -54,6 +55,7 @@ public:
     {
         m_epfd_ = ::epoll_create1(0);
         assert(m_epfd_ > 0);
+        memset(m_event_arr_, 0, sizeof(m_event_arr_)*MAX_EVENT_NUM)
     }
     ~EPoll()
     {
@@ -74,25 +76,62 @@ public:
             return "Unknown Operation";
         }
     }
-    unsigned int Poll(int a_tmout)
+    unsigned int Poll(int a_tmout, std::vector<Channel*>& a_active_channels)
     {
-
-        int numEvents = ::epoll_wait(m_epfd_, m_event_arr_, MAX_EVENT_NUM, a_tmout);
-
         unsigned int now = (unsigned int)su::SecondTime();
+        int numEvents = ::epoll_wait(m_epfd_, m_event_arr_, MAX_EVENT_NUM, a_tmout);
+        if (numEvents < 0)
+        {
+            ///log
+        }
+        else 
+        {
+            assert(numEvents <= MAX_EVENT_NUM)
+            //////log
+            a_active_channels.reserve(numEvents);
+            for (int i=0; i < numEvents; ++i)
+            {
+                Channel* ptr = static_cast<Channel*>(m_event_arr_[i].data.ptr);
+                ptr->SetReadyEvents(m_event_arr_[i].events);
+                a_active_channels.push_back(ptr);
+            }
+        }
         return now;
     }
-    void Update(int a_op, int a_fd, unsigned int a_evs)
+    void RemoveChannel(Channel* a_channel)
     {
-        struct epoll_event ee;
-        memset(&ee, 0, sizeof(ee));
-        ee.events = a_evs;
-        ee.data.fd = a_fd;
-        int ret = ::epoll_ctl(m_epfd_, a_op, a_fd, &ee);
+        int fd = a_channel->Fd();
+        int ret = ::epoll_ctl(m_epfd_, EPOLL_CTL_DEL, fd, NULL);
         if (ret < 0)
         {
             //log
-            return;
+        }
+    }
+
+    void UpdateChannel(Channel* a_channel)
+    {
+        int fd = a_channel->Fd();
+        struct epoll_event ee;
+        memset(&ee, 0, sizeof(ee));
+        ee.events = a_channel->Events();
+        ee.data.ptr = a_channel;
+        if (a_channel->GetInEpoll())
+        {
+            int ret = ::epoll_ctl(m_epfd_, EPOLL_CTL_MOD, fd, &ee);
+            if (ret < 0)
+            {
+                //log
+            }
+        }
+        else 
+        {
+            int ret = ::epoll_ctl(m_epfd_, EPOLL_CTL_ADD, fd, &ee);
+            if (ret < 0)
+            {
+                //log
+                return;
+            }
+            a_channel->SetInEpoll();
         }
     }
 };
