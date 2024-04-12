@@ -14,8 +14,7 @@
 #include <pthread.h>
 #include "../../toolbox/original_dependence.hpp"
 #include "../../toolbox/time_function.hpp"
-#include "tcp_connection.hpp"
-
+#include "epoll.h"
 
 const int kPollTimeMs = 10000;
 namespace su
@@ -23,30 +22,44 @@ namespace su
 
 class EventLoop: public Noncopyable
 {
-    typedef std::unordered_map<int, su::TcpConnectionPtr> CONNECTION_MAP_TYPE;
 private:
     std::atomic<bool> m_loop_;
     std::atomic<bool> m_quit_;
     const unsigned int m_thread_id_;
-
-    EPoll m_ep_;          ////////////epoll
+    std::vector<Channel*> m_active_channels_;
+    bool m_event_handling_;
+    Channel* m_cur_handle_channel_;
+    EPoll* m_ep_;          ////////////epoll
     
-    CONNECTION_MAP_TYPE m_connections_;//////所有连接
 public:
-    EventLoop():m_loop_(false),m_thread_id_(pthread_self()),m_quit_(false)
-    {}
+    EventLoop():m_loop_(false),m_quit_(false),m_thread_id_(pthread_self())
+    {
+        m_active_channels_.clear();
+        m_event_handling_ = false;
+        m_cur_handle_channel_ = NULL;
+        m_ep_ = new EPoll();
+    }
     ~EventLoop();
     {
     }
 public:
     void Loop()
     {
-        assert(!m_loop_)
+        assert(!m_loop_);
         m_loop_ = true;
         m_quit_ = false;
         while (!m_quit_)
         {
-            unsigned int recv_time = m_ep_.Poll(kPollTimeMs);
+            m_active_channels_.clear();
+            unsigned int rt_time = m_ep_->Poll(kPollTimeMs, m_active_channels_);
+            m_event_handling_ = true;
+            for (Channel* channel : m_active_channels_)
+            {
+                m_cur_handle_channel_ = channel;
+                m_cur_handle_channel_->HandleEvent(rt_time);
+            }
+            m_cur_handle_channel_ = NULL;
+            m_event_handling_ = false;
         }
         
     }
@@ -59,7 +72,25 @@ public:
         return (m_thread_id_ == pthread_self());
     }
     void AssertInLoopThread()
-    {} 
+    {}
+
+    void UpdateChannel(Channel* channel)
+    {
+        m_ep_->UpdateChannel(channel);
+    }
+    void RemoveChannel(Channel* channel)
+    {
+        if (m_event_handling_)
+        {
+            assert(m_cur_handle_channel_== channel 
+                || std::find(m_active_channels_.begin(), m_active_channels_.end(), channel) == m_active_channels_.end());
+        }
+        m_ep_->RemoveChannel(channel);
+    }
+    bool hasChannel(Channel* channel)
+    {
+
+    }
 };
 
 __thread EventLoop* t_loopInThisThread = NULL;

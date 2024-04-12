@@ -121,6 +121,20 @@ func GetCrc32Sum(userId, peerId uint64, zero_time uint32) uint32 {
 	str := strconv.FormatUint(userId, 10) + strconv.FormatUint(peerId, 10) + strconv.FormatUint(uint64(zero_time), 10)
 	return crc32.ChecksumIEEE([]byte(str))
 }
+func GetMiniNeedPower(totalForce uint64) (uint64, uint64) {
+	if totalForce == 0 {
+		return 0, 0
+	}
+	if totalForce > 0 && totalForce < 10 {
+		return 0, 10
+	}
+	str := strconv.FormatUint(totalForce, 10)
+	n, _ := strconv.ParseUint(str[0:1], 10, 64) 
+	m := uint64(math.Pow(10, float64(len(str)-1)))
+	fmt.Println(str, m, n, len(str))
+	ret := n * m
+	return ret, ret + m
+}
 func main() {
 	slog.Init("client.log")
 	tn := time.Now()
@@ -129,7 +143,7 @@ func main() {
 	tm_str := tn.String()
 	C.hi();
 	fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
-	
+	fmt.Println(GetMiniNeedPower(1066))
 	var li = my_util.GetLogFileLine()
 	fmt.Println(li, math.Ceil(0.03))
 	my_util.Classifier(li)

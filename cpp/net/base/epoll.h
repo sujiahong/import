@@ -26,6 +26,8 @@ EPOLLERR：表示对应的文件描述符发生错误；
 
 EPOLLHUP：表示对应的文件描述符被挂断；
 
+EPOLLRDHUP: 代表对端断开连接;
+
 EPOLLET： 将EPOLL设为边缘触发(Edge Triggered)模式，这是相对于水平触发(Level Triggered)来说的。
 
 EPOLLONESHOT：只监听一次事件，当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里
@@ -86,7 +88,7 @@ public:
         }
         else 
         {
-            assert(numEvents <= MAX_EVENT_NUM)
+            assert(numEvents <= MAX_EVENT_NUM);
             //////log
             a_active_channels.reserve(numEvents);
             for (int i=0; i < numEvents; ++i)
