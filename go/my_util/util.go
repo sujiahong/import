@@ -6,7 +6,6 @@ import (
 	"go.uber.org/zap"
 	slog "go/su_log"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -166,14 +165,6 @@ func CopyFile(a_src_file, a_dst_file string) {
 			break
 		}
 	}
-}
-
-/////[min,max]范围内随机
-func RandRange(min, max int64) int64 {
-	if max < min {
-		return 0
-	}
-	return rand.Int63()%(max-min+1) + min
 }
 
 ////判断管道是否关闭

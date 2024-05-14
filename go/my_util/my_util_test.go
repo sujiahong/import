@@ -14,3 +14,9 @@ func TestGetLogFileLine(t *testing.T){
 func TestGetZeroTime(t *testing.T){
 	fmt.Println("@@@@@", my_util.GetTodayZeroTime())
 }
+
+func TestToString(t *testing.T) {
+	// v := 20102.9390394
+	var v1 uint32 = 343
+	fmt.Println(my_util.ToString(v1))
+}
