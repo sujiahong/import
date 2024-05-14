@@ -1,8 +1,8 @@
 package my_util
 
 import (
-	"math/rand"
 	"sync"
+	"math/rand"
 	"time"
 )
 
