@@ -44,7 +44,7 @@ struct epoll_event {
     epoll_data_t data; // User data variable 
 };
 */
-#define MAX_EVENT_NUM 20000
+#define MAX_EVENT_NUM 3000
 
 class EPoll: public Noncopyable
 {
@@ -57,7 +57,7 @@ public:
     {
         m_epfd_ = ::epoll_create1(0);
         assert(m_epfd_ > 0);
-        memset(m_event_arr_, 0, sizeof(m_event_arr_)*MAX_EVENT_NUM)
+        memset(m_event_arr_, 0, sizeof(m_event_arr_)*MAX_EVENT_NUM);
     }
     ~EPoll()
     {

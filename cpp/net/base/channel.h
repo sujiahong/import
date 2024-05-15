@@ -50,11 +50,11 @@ public:
     inline bool IsWriting() const { return m_events_ & WRITE_EVENT; }
     inline bool IsReading() const { return m_events_ & READ_EVENT; }
 
-    inline void EnableReading() { m_events_ |= READ_EVENT; update(); }
-    inline void DisableReading() { m_events_ &= ~READ_EVENT; update(); }
-    inline void EnableWriting() { m_events_ |= WRITE_EVENT; update(); }
-    inline void DisableWriting() { m_events_ &= ~WRITE_EVENT; update(); }
-    inline void DisableAll() { m_events_ = NONE_EVENT; update(); }
+    inline void EnableReading() { m_events_ |= READ_EVENT; Update(); }
+    inline void DisableReading() { m_events_ &= ~READ_EVENT; Update(); }
+    inline void EnableWriting() { m_events_ |= WRITE_EVENT; Update(); }
+    inline void DisableWriting() { m_events_ &= ~WRITE_EVENT; Update(); }
+    inline void DisableAll() { m_events_ = NONE_EVENT; Update(); }
 
 
     void HandleEvent(uint32_t a_rt_time)
@@ -79,7 +79,7 @@ public:
 private:
     void Update()
     {
-
+        m_loop_->UpdateChannel(this);
     }
     std::string EventsToString(int fd, int ev)
     {
