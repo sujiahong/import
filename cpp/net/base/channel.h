@@ -56,14 +56,22 @@ public:
     inline void DisableWriting() { m_events_ &= ~WRITE_EVENT; Update(); }
     inline void DisableAll() { m_events_ = NONE_EVENT; Update(); }
 
+    inline void SetWriteCallback(EVENT_CALLBACK_TYPE a_cb)
+    { m_write_callback_ = a_cb; }
+    inline void SetCloseCallback(EVENT_CALLBACK_TYPE a_cb)
+    { m_close_callback_ = a_cb; }
+    inline void SetErrorCallback(EVENT_CALLBACK_TYPE a_cb)
+    { m_error_callback_ = a_cb; }
+    inline void SetReadCallback(READ_EVENT_CALLBACK_TYPE a_cb)
+    { m_read_callback_ = a_cb; }
 
     void HandleEvent(uint32_t a_rt_time)
     {
-        if ((m_ready_events_ & EPOLLHUP) && !(m_ready_events_& EPOLLIN)) 
+        if ((m_ready_events_ & EPOLLHUP) && !(m_ready_events_& EPOLLIN)) //关闭
         {
             if (m_close_callback_) m_close_callback_();
         }
-        if (m_read_callback_ & EPOLLERR)
+        if (m_read_callback_ & EPOLLERR) // error
         {
             if (m_error_callback_) m_error_callback_();
         }

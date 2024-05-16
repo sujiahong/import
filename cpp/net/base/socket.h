@@ -29,6 +29,8 @@ public:
     {
         m_sock_fd_ = Create(a_sa_family, a_type);
     }
+    Socket(int a_sa_family, int a_type, int a_fd):m_sock_ver_(a_sa_family),m_type_(a_type),m_sock_fd_(a_fd)
+    {}
     ~Socket()
     {
         ::close(m_sock_fd_);
