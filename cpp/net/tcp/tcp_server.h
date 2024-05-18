@@ -27,8 +27,11 @@ public:
     TcpServer(EventLoop* a_loop, const std::string& a_ip_port);
     ~TcpServer();
 
-    void Launch();
+    void Run();
     void SetThreadNum(int a_num);
+
+    void NewConnection(int a_fd);
+    void RemoveConnection(unsigned int a_conn_id);
 
 };
 

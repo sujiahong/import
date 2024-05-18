@@ -7,22 +7,21 @@
 
 #include <functional>
 #include <sys/epoll.h>
+#include "define_struct.h"
 #include "../../toolbox/original_dependence.hpp"
 #include "socket.h"
+#include "event_loop.h"
 namespace su
 {
 
-class EventLoop;
 const int NONE_EVENT = 0;
 const int READ_EVENT = EPOLLIN | EPOLLPRI;
 const int WRITE_EVENT = EPOLLOUT;
 class Channel: public Noncopyable
 {
-    typedef std::function<void()> EVENT_CALLBACK_TYPE;
-    typedef std::function<void(unsigned int)> READ_EVENT_CALLBACK_TYPE;
 private:
     EventLoop* m_loop_;
-    int fd_;
+    Socket* m_sock_;
     uint32_t m_events_;
     uint32_t m_ready_events_;
     int m_index_;
@@ -33,12 +32,12 @@ private:
     EVENT_CALLBACK_TYPE m_error_callback_;
     READ_EVENT_CALLBACK_TYPE m_read_callback_;
 public:
-    Channel(EventLoop* a_loop, int a_fd):m_loop_(a_loop),fd_(a_fd)
+    Channel(EventLoop* a_loop, Socket* a_sock):m_loop_(a_loop),m_sock_(a_sock)
     {}
     ~Channel()
     {}
 public:
-    inline int Fd() const{ return fd_;}
+    inline int Fd() const{ return m_sock_.Fd();}
     inline int Index() { return m_index_; }
     inline void SetIndex(int idx) { m_index_ = idx; }
     inline uint32_t Events() const {return m_events_;}
@@ -50,10 +49,10 @@ public:
     inline bool IsWriting() const { return m_events_ & WRITE_EVENT; }
     inline bool IsReading() const { return m_events_ & READ_EVENT; }
 
-    inline void EnableReading() { m_events_ |= READ_EVENT; Update(); }
-    inline void DisableReading() { m_events_ &= ~READ_EVENT; Update(); }
-    inline void EnableWriting() { m_events_ |= WRITE_EVENT; Update(); }
-    inline void DisableWriting() { m_events_ &= ~WRITE_EVENT; Update(); }
+    inline void EnableRead() { m_events_ |= READ_EVENT; Update(); }
+    inline void DisableRead() { m_events_ &= ~READ_EVENT; Update(); }
+    inline void EnableWrite() { m_events_ |= WRITE_EVENT; Update(); }
+    inline void DisableWrite() { m_events_ &= ~WRITE_EVENT; Update(); }
     inline void DisableAll() { m_events_ = NONE_EVENT; Update(); }
 
     inline void SetWriteCallback(EVENT_CALLBACK_TYPE a_cb)
@@ -109,6 +108,6 @@ private:
     }
 };
 
-}
+}/////namespace su
 
 #endif
