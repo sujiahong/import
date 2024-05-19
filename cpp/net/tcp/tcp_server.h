@@ -30,7 +30,7 @@ public:
     void Run();
     void SetThreadNum(int a_num);
 
-    void NewConnection(int a_fd);
+    void NewConnection(int a_fd, std::string a_peer_id, unsigned short a_peer_port);
     void RemoveConnection(unsigned int a_conn_id);
 
 };

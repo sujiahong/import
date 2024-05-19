@@ -8,6 +8,8 @@
 
 namespace su
 {
+class Connection;
+
 template<typename T>
 inline T* get_pointer(const std::shared_ptr<T>& ptr)
 {
@@ -24,6 +26,8 @@ typedef std::function<void(int, std::string, unsigned short)> NEW_CONNECTION_CAL
 
 typedef std::function<void()> EVENT_CALLBACK_TYPE;
 typedef std::function<void(unsigned int)> READ_EVENT_CALLBACK_TYPE;
+
+typedef std::function<void(Connection*)>  CONNECTION_CALLBACK_TYPE;
 
 } ///namespace su
 

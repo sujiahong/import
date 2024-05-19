@@ -7,6 +7,8 @@
 
 #include <vector>
 #include <string>
+#include <sys/types.h>
+
 #include "define_struct.h"
 #include "../../toolbox/original_dependence.hpp"
 #include "socket.h"
