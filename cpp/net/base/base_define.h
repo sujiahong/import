@@ -4,7 +4,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-
+#include <unordered_map>
 
 namespace su
 {
@@ -29,6 +29,9 @@ typedef std::function<void(unsigned int)> READ_EVENT_CALLBACK_TYPE;
 
 typedef std::function<void(Connection*)>  CONNECTION_CALLBACK_TYPE;
 
+
+typedef std::shared_ptr<Connection> TCP_CONNECTION_PTR;
+typedef std::unordered_map<unsigned int, TCP_CONNECTION_PTR> CONNECTION_MAP_TYPE;
 } ///namespace su
 
 #endif

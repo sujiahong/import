@@ -65,7 +65,7 @@ private:
     {
         std::string peer_ip;
         unsigned short peer_port;
-        int conn_fd = m_listen_sock_.Accept(peer_ip, peer_port)
+        int conn_fd = m_listen_sock_.Accept(peer_ip, peer_port);
         if (conn_fd >= 0)
         {
             if (m_new_connection_callback_)

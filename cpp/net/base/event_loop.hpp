@@ -10,11 +10,12 @@
 #include <vector>
 #include <functional>
 #include <memory>
-
 #include <pthread.h>
+
 #include "../../toolbox/original_dependence.hpp"
 #include "../../toolbox/time_function.hpp"
 #include "epoll.h"
+#include "channel.h"
 
 const int kPollTimeMs = 10000;
 namespace su
@@ -41,6 +42,8 @@ public:
     }
     ~EventLoop();
     {
+        delete m_ep_;
+        m_cur_handle_channel_ = NULL;
     }
 public:
     void Loop()
@@ -112,14 +115,14 @@ public:
             ret = pthread_create(&(m_tid_arr_[i]), NULL, ThreadFunc, this);
             if (ret != 0)
             {
-                std::cout<<" Error: create thread失败 ret="<<ret<<" i="<<i<<std::endl;
+                // std::cout<<" Error: create thread失败 ret="<<ret<<" i="<<i<<std::endl;
                 continue;
             }
-            std::cout<<" Info: pthread_id="<<m_tid_arr_[i]<<std::endl;
+            // std::cout<<" Info: pthread_id="<<m_tid_arr_[i]<<std::endl;
             ret = pthread_detach(m_tid_arr_[i]);
             if (ret != 0)
             {
-                std::cout<<" Error: pthread_detach失败 ret="<<ret<<" i="<<i<<std::endl;
+                // std::cout<<" Error: pthread_detach失败 ret="<<ret<<" i="<<i<<std::endl;
                 continue;
             }
         }
