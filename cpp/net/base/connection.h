@@ -3,19 +3,19 @@
 /// tcp连接封装
 ////////////////
 
-#ifndef _CONNECTION_HPP_
-#define _CONNECTION_HPP_
+#ifndef _CONNECTION_H_
+#define _CONNECTION_H_
 
 #include <string>
 
+#include "../../toolbox/original_dependence.hpp"
 
-#include "../toolbox/original_dependence.hpp"
-
-namespace su {
+namespace su 
+{
 class Channel;
 class EventLoop;
 class Socket;
-class Connection: public Noncopyable, std::enable_shared_from_this<Connection>
+class Connection: public Noncopyable, public std::enable_shared_from_this<Connection>
 {
     enum StateEnum
     {
@@ -37,7 +37,11 @@ private:
     Socket* m_sock_;
     Channel* m_channel_;
 
-
+    CONNECTION_CALLBACK_TYPE m_connection_callback_;
+    MESSAGE_CALLBACK_TYPE m_message_callback_;
+    WRITE_COMPLETE_CALLBACK_TYPE m_write_complete_callback_;
+    // HighWaterMarkCallback highWaterMarkCallback_;
+    CLOSE_CALLBACK_TYPE m_close_callback_;
 public:
     Connection(EventLoop* loop, 
         int a_fd, 
@@ -55,6 +59,17 @@ public:
     void Read(const std::string& a_msg);
     void Write(const std::string& a_msg);
 
+    void SetConnectionCallback(const CONNECTION_CALLBACK_TYPE& cb)
+    { m_connection_callback_ = cb; }
+
+    void SetMessageCallback(const MESSAGE_CALLBACK_TYPE& cb)
+    { m_message_callback_ = cb; }
+
+    void SetWriteCompleteCallback(const WRITE_COMPLETE_CALLBACK_TYPE& cb)
+    { m_write_complete_callback_ = cb; }
+
+    void setCloseCallback(const CLOSE_CALLBACK_TYPE& cb)
+    { m_close_callback_ = cb; }
 private:
     void HandleRead(unsigned int a_rt_time);
     void HandleWrite();
@@ -62,5 +77,5 @@ private:
     void HandleError();
 };
 
-}
+}//////namespace su
 #endif

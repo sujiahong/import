@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <pthread.h>
+#include <assert.h>
 
 #include "../../toolbox/original_dependence.hpp"
 #include "../../toolbox/time_function.hpp"
@@ -33,7 +34,10 @@ private:
     EPoll* m_ep_;          ////////////epoll
     
 public:
-    EventLoop():m_loop_(false),m_quit_(false),m_thread_id_(pthread_self())
+    EventLoop():
+        m_loop_(false),
+        m_quit_(false),
+        m_thread_id_(pthread_self())
     {
         m_active_channels_.clear();
         m_event_handling_ = false;
@@ -96,23 +100,59 @@ public:
     }
 };
 
-__thread EventLoop* t_loopInThisThread = NULL;
+// __thread EventLoop* t_loopInThisThread = NULL;
 
+typedef struct ThreadParam
+{
+    EventLoopThreadPool* pool;
+    unsigned int thd_index;
+}THREAD_PARAM;
 
 class EventLoopThreadPool: public Noncopyable
 {
 private:
     EventLoop* m_base_loop_;
-    std::vector<EventLoop*> m_event_loops_;
     unsigned int m_thread_num_;
+    bool m_running_;
+    std::vector<EventLoop*> m_event_loops_;
     pthread_t m_tid_arr_[20];
+    unsigned int m_next_;
 public:
-    EventLoopThreadPool(EventLoop* a_elp, unsigned int a_thd_num):m_base_loop_(a_elp),m_thread_num_(a_thd_num)
+    EventLoopThreadPool(EventLoop* a_elp, unsigned int a_thd_num):
+        m_base_loop_(a_elp),
+        m_thread_num_(a_thd_num),
+        m_running_(false),
+        m_next_(0)
     {
+    }
+    ~EventLoopThreadPool()
+    {
+        // Don't delete loop, it's stack variable
+    }
+public:
+    static void* ThreadFunc(void* a_arg)
+    {
+        THREAD_PARAM* param = (THREAD_PARAM*)a_arg;
+        assert(!param);
+        EventLoop* loop = new EventLoop();
+        param->pool->m_event_loops_[param->thd_index] = loop;
+        
+        while (loop != 0)
+        {
+            loop->Loop();
+        }
+        return 0;
+    }
+    void Start()
+    {
+        m_event_loops_.resize(m_thread_num_);
         int ret = 0;
         for (unsigned int i = 0; i < m_thread_num_; ++i)
         {
-            ret = pthread_create(&(m_tid_arr_[i]), NULL, ThreadFunc, this);
+            THREAD_PARAM param;
+            param.pool = this;
+            param.thd_index = i;
+            ret = pthread_create(&(m_tid_arr_[i]), NULL, ThreadFunc, (void*)&param);
             if (ret != 0)
             {
                 // std::cout<<" Error: create thread失败 ret="<<ret<<" i="<<i<<std::endl;
@@ -126,13 +166,17 @@ public:
                 continue;
             }
         }
+        m_running_ = true;
     }
-    ~EventLoopThreadPool()
-    {}
-public:
+    void SetThreadNum(unsigned int a_thd_num)
+    {
+        m_thread_num_ = a_thd_num;
+    }
     EventLoop* GetNextLoop()
     {
-
+        unsigned int idx = m_next_ % m_thread_num_;
+        ++m_next_;
+        return m_event_loops_[idx];
     }
 
 };

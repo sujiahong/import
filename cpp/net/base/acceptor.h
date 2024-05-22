@@ -9,7 +9,7 @@
 #include <string>
 #include <sys/types.h>
 
-#include "define_struct.h"
+#include "base_define.h"
 #include "../../toolbox/original_dependence.hpp"
 #include "socket.h"
 #include "channel.h"
@@ -23,7 +23,7 @@ private:
     std::string m_ltn_ip_;          // 监听ip
     Socket m_listen_sock_;          //监听socket
     Channel m_listen_channel_;
-    NewConnectionCallback m_new_connection_callback_;
+    NEW_CONNECTION_CALLBACK_TYPE m_new_connection_callback_;
 public:
     Acceptor(EventLoop* a_loop, const std::string& a_ip_port, bool a_reuse_port):
         m_listen_sock_(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC),
