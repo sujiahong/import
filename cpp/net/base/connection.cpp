@@ -38,9 +38,15 @@ void Connection::ConnectionDestroyed()
     m_loop_->RemoveChannel(m_channel_);
     ////// todo log
 }
-int Connection::GetConnStat()
+void Connection::SetTcpNoDelay(bool a_on)
 {
-    return m_conn_stat_;
+    m_sock_->SetTcpNoDelay(a_on);
+}
+void Connection::Shutdown() ////暂时不支持
+{
+}
+void Connection::ForceClose()////暂时不支持
+{
 }
 void Connection::HandleRead(unsigned int a_rt_time)
 {

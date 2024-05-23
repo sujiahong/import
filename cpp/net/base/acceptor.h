@@ -70,6 +70,7 @@ private:
         {
             if (m_new_connection_callback_)
             {
+                Socket::SetNoBlockAndCloseOnExec(conn_fd);
                 m_new_connection_callback_(conn_fd, peer_ip, peer_port);
             }
             else

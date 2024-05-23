@@ -50,14 +50,27 @@ public:
         std::string& a_peer_ip, unsigned short a_peer_port);
     ~Connection();
 public:
-    int GetConnStat();
-
+    int GetConnStat() const {return m_conn_stat_;}
+    const std::string& GetName() const { return m_name_;}
+    void GetLocalIPAndPort(std::string& a_ip, unsigned short& a_port)
+    {
+        a_ip = m_local_ip_;
+        a_port = m_local_port_;
+    }
+    void GetPeerIPAndPort(std::string& a_ip, unsigned short& a_port)
+    {
+        a_ip = m_peer_ip_;
+        a_port = m_peer_port_;
+    }
     void SetTcpNoDelay(bool a_on);
+    void Shutdown();
+    void Close();
+    void ForceClose();
 
     void ConnectionEstablished();
     void ConnectionDestroyed();
-    void Read(const std::string& a_msg);
-    void Write(const std::string& a_msg);
+
+    void Send(const std::string& a_msg);
 
     void SetConnectionCallback(const CONNECTION_CALLBACK_TYPE& cb)
     { m_connection_callback_ = cb; }
@@ -68,7 +81,7 @@ public:
     void SetWriteCompleteCallback(const WRITE_COMPLETE_CALLBACK_TYPE& cb)
     { m_write_complete_callback_ = cb; }
 
-    void setCloseCallback(const CLOSE_CALLBACK_TYPE& cb)
+    void SetCloseCallback(const CLOSE_CALLBACK_TYPE& cb)
     { m_close_callback_ = cb; }
 private:
     void HandleRead(unsigned int a_rt_time);

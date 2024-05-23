@@ -67,6 +67,7 @@ public:
             }
             m_cur_handle_channel_ = NULL;
             m_event_handling_ = false;
+
         }
         
     }
@@ -96,7 +97,7 @@ public:
     }
     bool hasChannel(Channel* channel)
     {
-
+        return m_ep_->hasChannel(channel);
     }
 };
 
@@ -132,8 +133,8 @@ public:
 public:
     static void* ThreadFunc(void* a_arg)
     {
+        assert(a_arg != NULL);
         THREAD_PARAM* param = (THREAD_PARAM*)a_arg;
-        assert(!param);
         EventLoop* loop = new EventLoop();
         param->pool->m_event_loops_[param->thd_index] = loop;
         

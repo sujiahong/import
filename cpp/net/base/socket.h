@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <netinet/tcp.h>
+#include <sys/uio.h>  // readv
 
 #include <string>
 namespace su
@@ -42,7 +43,6 @@ public:
         m_sock_ver_ = a_sa_family;
         m_type_ = a_type;
         int sock_fd = ::socket(a_sa_family, m_type_, 0);
-        assert(sock_fd < 0);
         if (m_sock_fd_ < 0)
             m_sock_fd_ = sock_fd;
         else
@@ -118,6 +118,7 @@ public:
         }
         else
             ExtractIPAndPortFromSockAddr(&peer_addr, a_peer_ip, a_peer_port);
+        Socket::SetNoBlockAndCloseOnExec(conn_fd); /////set nonblocking and close on exec
         return conn_fd;
     }
     int Connect(std::string a_ip, unsigned short a_port)
@@ -194,6 +195,18 @@ public:
         }
         ExtractIPAndPortFromSockAddr(&addr, a_ip, a_port);
         return 0;
+    }
+    static int Read(int a_fd, void* a_buf, size_t a_len)
+    {   
+        return ::read(a_fd, a_buf, a_len);
+    }
+    static int Readv(int a_fd, const struct iovec* a_iov, int a_iovcnt)
+    {
+        return ::readv(a_fd, a_iov, a_iovcnt);
+    }
+    static int Write(int a_fd, const void* a_buf, size_t a_len)
+    {
+        return ::write(a_fd, a_buf, a_len);
     }
 };
 }

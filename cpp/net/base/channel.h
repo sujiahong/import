@@ -35,9 +35,6 @@ private:
 public:
     Channel(EventLoop* a_loop, int a_fd);
     ~Channel();
-private:
-    void Update();
-    std::string EventsToString(int fd, int ev);
 public:
     inline int Fd() const{ return m_fd_;}
     inline int Index() { return m_index_; }
@@ -67,7 +64,9 @@ public:
     { m_read_callback_ = std::move(a_cb); }
 
     void HandleEvent(unsigned int a_rt_time);
-
+private:
+    void Update();
+    std::string EventsToString(int fd, int ev);
 };
 
 }/////namespace su
