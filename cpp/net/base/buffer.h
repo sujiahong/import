@@ -10,8 +10,12 @@ namespace su
 class Buffer: public Copyable {
 private:
     std::vector<char> m_buffer_;
-    
+    size_t m_read_idx_;
+    size_t m_write_idx_;
+public:
 
+
+    
 };
 
 }
