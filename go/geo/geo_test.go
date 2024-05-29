@@ -39,7 +39,7 @@ func TestPolygonInnerRandPoint(t *testing.T) {
 	}
 	count := 0
 	fmt.Println("111    ", points, len(points))
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 10000000; i++ {
 		tmpPoint := geo.PolygonInnerRandPoint(points)
 		if !geo.IsInPolygon(points, tmpPoint) {
 			count++

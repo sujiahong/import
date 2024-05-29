@@ -68,8 +68,8 @@ func LineSegmentOnPoint(p1, p2 *Point) *Point {
 }
 ///三角形行内随机点
 func TriangleInnerPoint(p1, p2, p3 *Point) *Point {
-	r1 := my_util.RandRange(1, 9999)
-	r2 := my_util.RandRange(1, 10000 - r1)
+	r1 := my_util.RandRange(1, 9998)
+	r2 := my_util.RandRange(1, 9999 - r1)
 	r3 := 10000 - r1 - r2
 	f1 := float64(r1) / 10000.0
 	f2 := float64(r2) / 10000.0
