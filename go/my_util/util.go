@@ -194,3 +194,30 @@ func WaitGroupWithTimeout(wg *sync.WaitGroup, timeout uint32) error {
 		return errors.New("timeout waiting for wait group")
 	}
 }
+
+func SyncMustSuccessIO(f func() error) {
+	for {
+		err := f()
+		if err != nil {
+			fmt.Println("SyncMustSuccessIO err=", zap.Error(err))
+			time.Sleep(time.Second*5)
+		}else {
+			return  /////结束
+		}
+	}
+}
+
+func AsyncMustSuccessIO(f func() error) {
+	go func() {
+		defer RecoverPanic()
+		for {
+			err := f()
+			if err != nil {
+				fmt.Println("AsyncMustSuccessIO err=", zap.Error(err))
+				time.Sleep(time.Second*time.Duration(RandRange(10,20)))
+			}else {
+				return  /////结束协程
+			}
+		}
+	}()
+}
