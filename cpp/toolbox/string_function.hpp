@@ -192,6 +192,21 @@ std::string Object2String(const T& obj)/////这个怎么实现
     return "";
 }
 
+/////替换字符串A中所有字串B为子串C
+std::string replace_all(std::string& origin_str, const std::string& old_value, const std::string& new_value)
+{
+    std::string str = origin_str;
+    for(std::string::size_type pos(0); pos != std::string::npos; pos += new_value.length())
+    {
+        pos = str.find(old_value, pos);
+        if(pos != std::string::npos)
+            str.replace(pos, old_value.length(), new_value);
+        else
+            break;
+    }
+    return str;
+}
+
 }
 
 

@@ -1,0 +1,4 @@
+file ./svr
+set args ./conf.d/config.ini ./logs svr
+b main
+r

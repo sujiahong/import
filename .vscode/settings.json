@@ -82,7 +82,16 @@
         "string_view": "cpp",
         "variant": "cpp",
         "__functional_base": "cpp",
-        "iterator": "cpp"
+        "iterator": "cpp",
+        "__std_stream": "cpp",
+        "charconv": "cpp",
+        "condition_variable": "cpp",
+        "deque": "cpp",
+        "format": "cpp",
+        "fstream": "cpp",
+        "iomanip": "cpp",
+        "span": "cpp",
+        "stack": "cpp"
     },
     "go.buildOnSave": "workspace",
     "go.lintOnSave": "package",
@@ -98,4 +107,5 @@
     "go.vetFlags": [],
     "go.gopath": "/Users/sujiahong/workspace/go",
     "go.goroot": "/usr/local/go",
+    "C_Cpp.errorSquiggles": "enabled",
 }

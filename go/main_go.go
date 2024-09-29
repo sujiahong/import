@@ -57,8 +57,9 @@ func b() {
 }
 
 type student struct {
-	name string
-	age int
+	name string   
+	age int       
+	height int    
 }
 
 type PINFO struct {
@@ -147,7 +148,10 @@ func main() {
 	var li = my_util.GetLogFileLine()
 	fmt.Println(li, math.Ceil(0.03))
 	my_util.Classifier(li)
-
+	var itemCount float64 = 51240
+	var at_rate float64 = 2500.0
+	var MAX_PRO float64 = 10000.0
+	fmt.Println("22222222   ", itemCount * (at_rate + MAX_PRO) / MAX_PRO * float64(15000) / MAX_PRO)
 	// go func(s string) {
 	// 	for i := 0; i < 2; i++ {
 	// 		fmt.Println(s)
@@ -160,7 +164,7 @@ func main() {
 	}
 
 	fmt.Println(my_util.GetTodayDate())
-	fmt.Println("1231  ", my_util.GetZeroTime(0))
+	fmt.Println("1231  ", my_util.GetZeroTime(0), )
 	fmt.Println(GetCrc32Sum(1, 2, 3))
 	// go a()
 	// time.Sleep(time.Second)
@@ -198,16 +202,23 @@ func main() {
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 	//fmt.Println("@@@@@", GetTodayZeroTime())
 	
-	nano := uint64(tn.UnixNano())
-	my_util.DelayRun(1000, func(){
-		zero := 0
-		x := nano / uint64(zero)
-		slog.Info("delay run", zap.Any("nano", nano), zap.Any("x", x))
-	})
-	// my_util.IntervalRun(1000, 3, func(){
-	// 	slog.Info("interval run", zap.Any("q", 3))
+	// nano := uint64(tn.UnixNano())
+	// my_util.DelayRun(1000, func(){
+	// 	zero := 0
+	// 	x := nano / uint64(zero)
+	// 	slog.Info("delay run", zap.Any("nano", nano), zap.Any("x", x))
 	// })
-	// time.Sleep(time.Second*4)
+	st := &student{
+		name: "pprof.cn",
+		age: 18,
+		height: 100,
+	}
+	fmt.Println("student=", st)
+	slog.Info("student ", zap.Any("st", st))
+	my_util.IntervalRun(100, 0, func(){
+		slog.Info("interval run", zap.Any("q", 3))
+	})
+	time.Sleep(time.Second*400)
 
 	// my_util.CopyFile("./t.log", "1.log")
 

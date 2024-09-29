@@ -96,8 +96,10 @@ func RecoverPanic() {
 func DelayRun(a_dealy uint32, a_f func()) {
 	go func() {
 		defer RecoverPanic()
+		timer := time.NewTimer(time.Duration(a_dealy) * time.Millisecond)
+		timer.Stop()
 		select {
-		case <-time.After(time.Duration(a_dealy) * time.Millisecond):
+		case <-timer.C:
 			a_f()
 			return
 		}
@@ -109,6 +111,8 @@ func IntervalRun(a_interval, a_times uint32, a_f func()) {
 	var count uint32 = 0
 	go func() {
 		defer RecoverPanic()
+		ticker := time.NewTicker(time.Duration(a_interval) * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			if a_times > 0 {
 				if count >= a_times {
@@ -117,7 +121,7 @@ func IntervalRun(a_interval, a_times uint32, a_f func()) {
 				count++
 			}
 			select {
-			case <-time.Tick(time.Duration(a_interval) * time.Millisecond):
+			case <- ticker.C:
 				a_f()
 			}
 		}
