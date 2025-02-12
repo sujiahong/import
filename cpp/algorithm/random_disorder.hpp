@@ -7,12 +7,20 @@
 #include <cstdlib>
 #include "../toolbox/time_function.hpp"
 
+#define RAND_MAX 32767
 
 namespace su
 {
 
 /////产生[min--max]范围随机数
 int RangeRandom(int a_min, int a_max)
+{
+    if (a_max < a_min)
+        return 0;
+    return rand()/(RAND_MAX - 0 + 1)*(a_max-a_min+1) + a_min;
+}
+/////产生[min--max]范围随机数，这个不对，概率不均匀
+int RangeRandomV2(int a_min, int a_max)
 {
     if (a_max < a_min)
         return 0;

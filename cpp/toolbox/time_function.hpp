@@ -106,6 +106,26 @@ static unsigned long long DateToTimeStamp(unsigned int a_date)
 	unsigned int day = (a_date-year*10000-month*100);
     
 }
+// 输入 a_cur_time 当前时间戳 秒
+//返回 年月 例如：202305
+static unsigned int DateYearMonth(unsigned long long a_cur_time=0)
+{
+    if (a_cur_time == 0)
+        a_cur_time = SecondTime();
+    struct tm tm_local;
+    localtime_r((long*)&a_cur_time, &tm_local);
+    return (tm_local.tm_year+1900)*100+tm_local.tm_mon+1;
+}
+// 输入 a_cur_time 当前时间戳 秒
+/// @return 年月日 例：20230506 
+static unsigned int DateYearMonthDay(unsigned long long a_cur_time=0)
+{
+    if (a_cur_time == 0)
+        a_cur_time = SecondTime();
+    struct tm tm_local;
+    localtime_r((long*)&a_cur_time, &tm_local);
+    return (tm_local.tm_year+1900)*10000+(tm_local.tm_mon+1)*100+tm_local.tm_mday;
+}
 
 }
 

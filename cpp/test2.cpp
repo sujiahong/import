@@ -35,12 +35,13 @@ int main(int argc, char** argv)
     for (int i = 0; i < 10; ++i)
     {
         r = su::RangeRandom(1, 10);
+        std::cout <<" r="<<r<<std::endl;
         if (r > 5)
         {
             count++;
         }
     }
-    //std::cout <<" count="<<count<<std::endl;
+    std::cout <<" count="<<count<<std::endl;
     char* maddr = su::FileOpenWithMMap("t2.txt", O_RDWR|O_CREAT|O_APPEND, 0766);
     std::cout <<" maddr="<<(void*)maddr<<std::endl;
     if (maddr)
@@ -49,5 +50,8 @@ int main(int argc, char** argv)
     }
     msync(maddr, 4096, MS_SYNC);
     munmap(maddr, 4096);
+    unsigned int dateYM = su::DateYearMonth();
+    unsigned int dateYMD = su::DateYearMonthDay();
+    std::cout <<" dateYM="<<dateYM<<" dateYMD="<<dateYMD<<std::endl;
     return 0;
 }
