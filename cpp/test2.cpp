@@ -9,6 +9,7 @@
 #include "./toolbox/time_function.hpp"
 #include "./toolbox/file_function.hpp"
 #include <sys/mman.h>
+#include "./toolbox/bytes.h"
 
 int num = 0;
 
@@ -53,5 +54,9 @@ int main(int argc, char** argv)
     unsigned int dateYM = su::DateYearMonth();
     unsigned int dateYMD = su::DateYearMonthDay();
     std::cout <<" dateYM="<<dateYM<<" dateYMD="<<dateYMD<<std::endl;
+    su::Bytes b1(20), b2("3433", 4);
+    b1 = b2;
+    std::cout <<" b1="<<b1.GetData()<<" b1len="<<b1.GetLen()
+            <<" b2="<<b2.GetData()<<" b2len="<<b2.GetLen()<<std::endl;
     return 0;
 }

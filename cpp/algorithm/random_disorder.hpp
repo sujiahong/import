@@ -5,9 +5,12 @@
 #include <unordered_set>
 #include <iostream>
 #include <cstdlib>
+#include <random>
 #include "../toolbox/time_function.hpp"
 
+#ifndef RAND_MAX
 #define RAND_MAX 32767
+#endif
 
 namespace su
 {
@@ -17,7 +20,11 @@ int RangeRandom(int a_min, int a_max)
 {
     if (a_max < a_min)
         return 0;
-    return rand()/(RAND_MAX - 0 + 1)*(a_max-a_min+1) + a_min;
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    static std::uniform_int_distribution<> distrib(a_min, a_max);
+    int index = distrib(gen);
+    return index;
 }
 /////产生[min--max]范围随机数，这个不对，概率不均匀
 int RangeRandomV2(int a_min, int a_max)
