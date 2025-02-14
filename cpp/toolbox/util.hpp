@@ -34,7 +34,7 @@ namespace su{
 	    long temp = static_cast<long>(original);
 	    double delta = original - static_cast<double>(temp);
         std::cout<<" delta="<<delta<<" "<<static_cast<double>(temp)<<" "<<temp<<std::endl;
-	    if (0.99 < fabs(delta))
+	    if (std::abs(delta) > 0.999999) // 改进精度判断阈值
 	    {
 	    	if (0 < delta)
 	    	{

@@ -36,6 +36,6 @@ struct Polygon////顺序排列的
 
 struct sdsdr {
     char buf[];
-}
+};
 
 #endif

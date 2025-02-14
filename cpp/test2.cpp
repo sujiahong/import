@@ -54,9 +54,14 @@ int main(int argc, char** argv)
     unsigned int dateYM = su::DateYearMonth();
     unsigned int dateYMD = su::DateYearMonthDay();
     std::cout <<" dateYM="<<dateYM<<" dateYMD="<<dateYMD<<std::endl;
-    su::Bytes b1(20), b2("3433", 4);
+    std::string str("320384");
+    su::Bytes b1(20), b2("3433", 4), b3(str), b4("3934wj");
     b1 = b2;
     std::cout <<" b1="<<b1.GetData()<<" b1len="<<b1.GetLen()
-            <<" b2="<<b2.GetData()<<" b2len="<<b2.GetLen()<<std::endl;
+            <<" b2="<<b2.GetData()<<" b2len="<<b2.GetLen()
+            <<" b3="<<b3.GetData()<<" b3len="<<b3.GetLen()
+            <<" b4="<<b4.GetData()<<" b4len="<<b4.GetLen()
+            <<" b3==b4 "<<(b3 == b3)
+            << std::endl;
     return 0;
 }

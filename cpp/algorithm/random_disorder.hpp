@@ -37,7 +37,11 @@ int RangeRandomV2(int a_min, int a_max)
 /////1-n数，m元排列,,, floyd 随机取样
 void FloydSample(int n, int m, std::vector<int>& a_vec)
 {
-    ////std::vector<unsigned int>().swap(a_vec);/////释放内存
+    if (m > n || m < 0)
+    {
+        a_vec.clear();
+        return;
+    }
     a_vec.resize(m);///////设置数组大小
     a_vec.clear();////////清除数据,并不清除内存，只是改变大小
     std::unordered_set<int> unod_set(n+m);
