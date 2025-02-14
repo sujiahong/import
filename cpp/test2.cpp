@@ -9,7 +9,8 @@
 #include "./toolbox/time_function.hpp"
 #include "./toolbox/file_function.hpp"
 #include <sys/mman.h>
-#include "./toolbox/bytes.h"
+#include "./data_structure/bytes.h"
+#include "./algorithm/hash.h"
 
 int num = 0;
 
@@ -54,6 +55,9 @@ int main(int argc, char** argv)
     unsigned int dateYM = su::DateYearMonth();
     unsigned int dateYMD = su::DateYearMonthDay();
     std::cout <<" dateYM="<<dateYM<<" dateYMD="<<dateYMD<<std::endl;
+    std::string dateYMStr = su::DateYearMonthString();
+    std::string dateYMDStr = su::DateYearMonthDayString();
+    std::cout <<" dateYMStr="<<dateYMStr<<" dateYMDStr="<<dateYMDStr<<std::endl;
     std::string str("320384");
     su::Bytes b1(20), b2("3433", 4), b3(str), b4("3934wj");
     b1 = b2;
@@ -63,5 +67,10 @@ int main(int argc, char** argv)
             <<" b4="<<b4.GetData()<<" b4len="<<b4.GetLen()
             <<" b3==b4 "<<(b3 == b3)
             << std::endl;
+
+    uint32_t h1 = su::djb2_hash("394");
+    uint32_t h2 = su::fnv1a_hash("394");
+    uint64_t h3 = su::supcHash("394", 3);
+    std::cout <<" h1="<<h1<<" h2="<<h2<<" h3="<<h3<<std::endl;
     return 0;
 }

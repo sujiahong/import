@@ -3,6 +3,7 @@
 
 #include <ctime>
 #include<sys/time.h>
+#include <string>
 
 #define DAY_SECONDS 86400
 #define HOUR_SECONDS 3600
@@ -107,7 +108,7 @@ static unsigned long long DateToTimeStamp(unsigned int a_date)
     
 }
 // 输入 a_cur_time 当前时间戳 秒
-//返回 年月 例如：202305
+//返回 年月 例如：202305 整数
 static unsigned int DateYearMonth(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
@@ -117,7 +118,21 @@ static unsigned int DateYearMonth(unsigned long long a_cur_time=0)
     return (tm_local.tm_year+1900)*100+tm_local.tm_mon+1;
 }
 // 输入 a_cur_time 当前时间戳 秒
-/// @return 年月日 例：20230506 
+//返回 年月 例如：202305 字符串
+static std::string DateYearMonthString(unsigned long long a_cur_time=0)
+{
+    if (a_cur_time == 0)
+        a_cur_time = SecondTime();
+    struct tm tm_local;
+    localtime_r((long*)&a_cur_time, &tm_local);
+    char dm[10];
+    strftime(dm, sizeof(dm), "%Y%m", &tm_local);
+    std::string dm_str(dm);
+    return dm_str;
+}
+
+// 输入 a_cur_time 当前时间戳 秒
+/// @return 年月日 例：20230506 整数
 static unsigned int DateYearMonthDay(unsigned long long a_cur_time=0)
 {
     if (a_cur_time == 0)
@@ -126,6 +141,20 @@ static unsigned int DateYearMonthDay(unsigned long long a_cur_time=0)
     localtime_r((long*)&a_cur_time, &tm_local);
     return (tm_local.tm_year+1900)*10000+(tm_local.tm_mon+1)*100+tm_local.tm_mday;
 }
+// 输入 a_cur_time 当前时间戳 秒
+/// @return 年月日 例：20230506 字符串
+static std::string DateYearMonthDayString(unsigned long long a_cur_time=0)
+{
+    if (a_cur_time == 0)
+        a_cur_time = SecondTime();
+    struct tm tm_local;
+    localtime_r((long*)&a_cur_time, &tm_local);
+    char dm[10];
+    strftime(dm, sizeof(dm), "%Y%m%d", &tm_local);
+    std::string dm_str(dm);
+    return dm_str;
+}
+
 
 }
 
