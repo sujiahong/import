@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"go/my_util"
-	slog "go/su_log"
-	"os"
-	"runtime"
+	// "go/my_util"
+	// slog "go/su_log"
+	// "os"
+	// "runtime"
 	"time"
 	//"strings"
 	"context"
@@ -17,14 +17,15 @@ import (
 
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
-	"go.uber.org/zap"
+	// "go.uber.org/zap"
 	//"go/su_net"
 	"github.com/golang/protobuf/proto"
 	"go/proto/Test"
-	sredis "go/su_da/redis"
-	"github.com/garyburd/redigo/redis"
-	smysql "go/su_da/su_sql"
-	skafka "go/su_da/kafka"
+	// sredis "go/su_da/redis"
+	// "github.com/garyburd/redigo/redis"
+	// smysql "go/su_da/su_sql"
+	// skafka "go/su_da/kafka"
+	"go/deepseek"
 )
 
 /*
@@ -137,35 +138,36 @@ func GetMiniNeedPower(totalForce uint64) (uint64, uint64) {
 	return ret, ret + m
 }
 func main() {
-	slog.Init("client.log")
-	tn := time.Now()
-	runtime.GOMAXPROCS(5)
-	p, _ := os.Getwd()
-	tm_str := tn.String()
-	C.hi();
-	fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
-	fmt.Println(GetMiniNeedPower(1066))
-	var li = my_util.GetLogFileLine()
-	fmt.Println(li, math.Ceil(0.03))
-	my_util.Classifier(li)
-	var itemCount float64 = 51240
-	var at_rate float64 = 2500.0
-	var MAX_PRO float64 = 10000.0
-	fmt.Println("22222222   ", itemCount * (at_rate + MAX_PRO) / MAX_PRO * float64(15000) / MAX_PRO)
+	// slog.Init("client.log")
+	// tn := time.Now()
+	// runtime.GOMAXPROCS(5)
+	// p, _ := os.Getwd()
+	// tm_str := tn.String()
+	// C.hi();
+	// fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
+	// fmt.Println(GetMiniNeedPower(1066))
+	// var li = my_util.GetLogFileLine()
+	// fmt.Println(li, math.Ceil(0.03))
+	// my_util.Classifier(li)
+	// var itemCount float64 = 51240
+	// var at_rate float64 = 2500.0
+	// var MAX_PRO float64 = 10000.0
+	// fmt.Println("22222222   ", itemCount * (at_rate + MAX_PRO) / MAX_PRO * float64(15000) / MAX_PRO)
 	// go func(s string) {
 	// 	for i := 0; i < 2; i++ {
 	// 		fmt.Println(s)
 	// 	}
 	// }("world")
 
-	for i := 0; i < 2; i++ {
-		runtime.Gosched()
-		fmt.Println("hello")
-	}
+	// for i := 0; i < 2; i++ {
+	// 	runtime.Gosched()
+	// 	fmt.Println("hello")
+	// }
 
-	fmt.Println(my_util.GetTodayDate())
-	fmt.Println("1231  ", my_util.GetZeroTime(0), )
-	fmt.Println(GetCrc32Sum(1, 2, 3))
+	// fmt.Println(my_util.GetTodayDate())
+	// fmt.Println("1231  ", my_util.GetZeroTime(0), )
+	// fmt.Println(GetCrc32Sum(1, 2, 3))
+
 	// go a()
 	// time.Sleep(time.Second)
 
@@ -208,17 +210,17 @@ func main() {
 	// 	x := nano / uint64(zero)
 	// 	slog.Info("delay run", zap.Any("nano", nano), zap.Any("x", x))
 	// })
-	st := &student{
-		name: "pprof.cn",
-		age: 18,
-		height: 100,
-	}
-	fmt.Println("student=", st)
-	slog.Info("student ", zap.Any("st", st))
-	my_util.IntervalRun(100, 0, func(){
-		slog.Info("interval run", zap.Any("q", 3))
-	})
-	time.Sleep(time.Second*400)
+	// st := &student{
+	// 	name: "pprof.cn",
+	// 	age: 18,
+	// 	height: 100,
+	// }
+	// fmt.Println("student=", st)
+	// slog.Info("student ", zap.Any("st", st))
+	// my_util.IntervalRun(100, 0, func(){
+	// 	slog.Info("interval run", zap.Any("q", 3))
+	// })
+	// time.Sleep(time.Second*400)
 
 	// my_util.CopyFile("./t.log", "1.log")
 
@@ -290,35 +292,39 @@ func main() {
 	// }
 	// fmt.Println(len(data_slice), cap(data_slice), data_slice)
 
-	slog.Info("redis 相关测试")
-	sd := sredis.NewRedisClient("localhost:8379", 1)
-	sd.Connect()
-	_, err := sd.Do("set", "1", 234231)
-	slog.Info("redis  set", zap.Error(err))
-	r, err := redis.Int(sd.Do("get", "1"))
-	slog.Info("redis  get", zap.Any("r",r), zap.Error(err))
-	slog.Info("mysql 相关测试")
-	sq := smysql.NewMysqlClient("root", "root", "localhost:6306", "tt1", 3, 1)
-	sq.Connect()
-	//sq.Insert("insert into t1(id,name) values (?,?)",100,"uosufje")
-	sq.Update("update t1 set name=? where id=?", "dhsbd", 100)
-	var info []PINFO
-	sq.Select(&info, "select id, name from t1 where id=?", 100)
-	slog.Info("mysql  select ", zap.Any("info",info))
+	// slog.Info("redis 相关测试")
+	// sd := sredis.NewRedisClient("localhost:8379", 1)
+	// sd.Connect()
+	// _, err := sd.Do("set", "1", 234231)
+	// slog.Info("redis  set", zap.Error(err))
+	// r, err := redis.Int(sd.Do("get", "1"))
+	// slog.Info("redis  get", zap.Any("r",r), zap.Error(err))
+	// slog.Info("mysql 相关测试")
+	// sq := smysql.NewMysqlClient("root", "root", "localhost:6306", "tt1", 3, 1)
+	// sq.Connect()
+	// //sq.Insert("insert into t1(id,name) values (?,?)",100,"uosufje")
+	// sq.Update("update t1 set name=? where id=?", "dhsbd", 100)
+	// var info []PINFO
+	// sq.Select(&info, "select id, name from t1 where id=?", 100)
+	// slog.Info("mysql  select ", zap.Any("info",info))
 
-	slog.Info("kafka 相关测试")
-	kp := skafka.NewKafkaProducer([]string{"127.0.0.1:7000"}, "test", true)
-	kp.Send("1234234233")
-	kc := skafka.NewKafkaConsumer([]string{"127.0.0.1:7000"}, "test", "test1", func(a_pa_id int32){
-		slog.Info("kafka 消费", zap.Int32("partion_id", a_pa_id))
-	})
-	time.Sleep(time.Second)
-	kc.ConsumeAllPartion()
-	time.Sleep(time.Second*10)
+	// slog.Info("kafka 相关测试")
+	// kp := skafka.NewKafkaProducer([]string{"127.0.0.1:7000"}, "test", true)
+	// kp.Send("1234234233")
+	// kc := skafka.NewKafkaConsumer([]string{"127.0.0.1:7000"}, "test", "test1", func(a_pa_id int32){
+	// 	slog.Info("kafka 消费", zap.Int32("partion_id", a_pa_id))
+	// })
+	// time.Sleep(time.Second)
+	// kc.ConsumeAllPartion()
+	// time.Sleep(time.Second*10)
+
 	// var testMap sync.Map
 	// testMap.Store(34, "3943")
 	// testMap.Store(3, "34")
 	// testMap.Store(34, "87889")
 	// val, _ := testMap.Load(34)
 	// slog.Info("打印", zap.Any("val", val))
+
+	// deepseek.DSList()
+	deepseek.DSChat("你是穷人，怎么样能弄到更多钱")
 }

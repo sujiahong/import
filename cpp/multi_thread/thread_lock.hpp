@@ -1,4 +1,8 @@
 //////linux线程锁
+////
+//// STL库保证多线程读，单线程读写。不保证多线程读写
+////
+////
 
 #ifndef _THREAD_LOCK_HPP_
 #define _THREAD_LOCK_HPP_

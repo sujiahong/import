@@ -1,5 +1,10 @@
 #!/bin/sh
 
+#
+#  $():直接命令行命令执行     ``:当作字符串解析后，再当命令行命令执行
+#
+#
+
 function exec_name() {
   echo $0 $1
   name4p=`find . -maxdepth 1 -type l -name "*.l" | grep -E "*\.l" | awk -F'/' '{print $NF}' | awk -F. '{print $1}'`
