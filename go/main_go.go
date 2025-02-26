@@ -25,7 +25,8 @@ import (
 	// "github.com/garyburd/redigo/redis"
 	// smysql "go/su_da/su_sql"
 	// skafka "go/su_da/kafka"
-	"go/deepseek"
+	// "go/deepseek"
+	"go/spider"
 )
 
 /*
@@ -326,5 +327,7 @@ func main() {
 	// slog.Info("打印", zap.Any("val", val))
 
 	// deepseek.DSList()
-	deepseek.DSChat("你是穷人，怎么样能弄到更多钱")
+	// deepseek.DSChat("怎样才能成为世界首富")
+
+	spider.CrawlingCommodityData2()
 }

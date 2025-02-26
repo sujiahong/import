@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"io/ioutil"
+	"time"
 )
 
 func DSList() {
@@ -60,6 +61,7 @@ func DSChat(question string) {
 	}`)
 
 	client := &http.Client {
+		Timeout: 30*time.Second,
 	}
 	rq, err := http.NewRequest(method, url, payload)
 	if err != nil {

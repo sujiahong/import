@@ -72,13 +72,12 @@ public:
     void DelCache(const T_KEY& a_key)
     {
         MUTEX_GUARD(m_mutex);
-        typename std::unordered_map<T_KEY, ItemValue<T_VAL> >::iterator itor = m_cache.find(a_key);
-        if (itor != m_cache.end())
-            m_cache.erase(itor);
+        m_cache.erase(a_key);
     }
 
     void Clear()
     {
+        MUTEX_GUARD(m_mutex);
         m_cache.clear();
     }
 
@@ -91,7 +90,17 @@ public:
     {
         return m_cache.size();
     }
-
+    void CheckExpired() {
+        MUTEX_GUARD(m_mutex);
+        auto now = std::chrono::system_clock::now();
+        for (auto it = m_cache.begin(); it != m_cache.end();) {
+            if (it->second.expire_time < now) {
+                it = m_cache.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     void Dump()
     {
         
