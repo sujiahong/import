@@ -4,10 +4,12 @@
 
 #include <string>
 #include <vector>
-#include<sstream>
+#include <sstream>
 #include <list>
 #include <map>
 #include <set>
+#include <unordered_map>
+#include <type_traits>
 
 namespace su
 {
@@ -213,9 +215,23 @@ void SplitToMap(const std::string& a_str, const std::string& a_d1, const std::st
 //     return oss.str();
 // }
 
+template<typename T>
+struct is_map : std::false_type {};
+
+template<typename K, typename V, typename Compare, typename Alloc>
+struct is_map<std::map<K,V, Compare, Alloc> > : std::true_type {};
+
+// 特化版本识别 std::unordered_map
+template <typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
+struct is_map<std::unordered_map<Key, T, Hash, KeyEqual, Alloc>> : std::true_type {};
+
+template<typename T>
+inline constexpr bool is_map_v = is_map<T>::value;
+
 ///自定义容器类型不支持
 template<typename Container>
-std::string Container2String(const Container& c, const std::string& delim=", ", int max_disp = 100)
+std::string Container2String(const Container& c, const std::string& delim=", ", 
+    const std::string& pair_delim = "", int max_disp = 100) -> std::enable_if_t<!is_map_v<Container>, std::string>
 {
     std::ostringstream oss;
     oss << "[";
@@ -232,16 +248,35 @@ std::string Container2String(const Container& c, const std::string& delim=", ", 
 }
 
 template<typename K, typename V>
-std::string Container2String(const std::map<K,V>& m, const std::string& pair_delim=":", const std::string& item_delim=", ")
+std::string Container2String(const std::map<K,V>& m, const std::string& pair_delim=":", 
+    const std::string& item_delim=", ", int max_disp = 100)
 {
-    bool is_first = true;
     std::ostringstream oss;
     oss << "{";
-    for (const auto& pair : m)
-    {
-        if (is_first) is_first = false;
-        else oss << item_delim;
-        oss << pair.first << pair_delim << pair.second;
+    int count = 0;
+    for (auto it = m.begin(); it != m.end() && count < max_disp; ++it, ++count) {
+        if (count > 0) oss << item_delim;
+        oss << it->first << pair_delim << it->second;
+    }
+    if (count < m.size()) {
+        oss << " ... (" << m.size() - count << " more)";
+    }
+    oss << "}";
+    return oss.str();
+}
+template<typename K, typename V>
+std::string Container2String(const std::unordered_map<K,V>& m, const std::string& pair_delim=":", 
+    const std::string& item_delim=", ", int max_disp = 100)
+{
+    std::ostringstream oss;
+    oss << "{";
+    int count = 0;
+    for (auto it = m.begin(); it != m.end() && count < max_disp; ++it, ++count) {
+        if (count > 0) oss << item_delim;
+        oss << it->first << pair_delim << it->second;
+    }
+    if (count < m.size()) {
+        oss << " ... (" << m.size() - count << " more)";
     }
     oss << "}";
     return oss.str();
