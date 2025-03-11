@@ -225,13 +225,16 @@ struct is_map<std::map<K,V, Compare, Alloc> > : std::true_type {};
 template <typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
 struct is_map<std::unordered_map<Key, T, Hash, KeyEqual, Alloc>> : std::true_type {};
 
-template<typename T>
-inline constexpr bool is_map_v = is_map<T>::value;
+// template<typename T>
+// inline constexpr bool is_map_v = is_map<T>::value;         /////c++11不支持
+
+template<bool B, class T = void>
+using enable_if_t = typename std::enable_if<B, T>::type;
 
 ///自定义容器类型不支持
 template<typename Container>
-std::string Container2String(const Container& c, const std::string& delim=", ", 
-    const std::string& pair_delim = "", int max_disp = 100) -> std::enable_if_t<!is_map_v<Container>, std::string>
+enable_if_t<!is_map<Container>::value, std::string> Container2String(const Container& c, const std::string& delim=", ", 
+    const std::string& pair_delim = "", int max_disp = 100)
 {
     std::ostringstream oss;
     oss << "[";
@@ -297,7 +300,7 @@ std::string replace_all(std::string origin_str, const std::string& old_value, co
     }
     return origin_str;
 }
-std::string replace_all_fast(const std::string& origin_str, const std::string& old_value, const std::string& new_value)
+std::string replace_all_fast(const std::string& origin_str, const std::string& old_value, const std::string& new_value)//快速版
 {
     if (origin_str.empty())
         return "";

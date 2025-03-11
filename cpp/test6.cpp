@@ -4,6 +4,9 @@
 #include <iostream>
 #include <cstdlib>
 #include <cmath>
+#include "./toolbox/string_function.hpp"
+#include "./toolbox/time_function.hpp"
+#include "./toolbox/uuid.hpp"
 
 #define MAX_PRO ( 10000.0f )
 
@@ -84,5 +87,20 @@ int main(int argc, char** argv)
             }
         }
     // std::cout<< " count " << count<< std::endl;
+    std::string r = su::replace_all_fast("shs;djfspodjfsdf", "dj", "<jjjjjjjj>");
+    std::cout <<" rrr=" << r << std::endl;
+
+    std::set<int> s1{3,84,4,93,9,32,84,32};
+    std::string s1_str = su::Container2String(s1);
+    std::map<int, int> m1{{3,84},{4,93},{9,32},{32,84}};
+    std::string m1_str = su::Container2String(m1);
+    std::cout << "s1_str=" << s1_str << " m1_str="<< m1_str<< std::endl;
+    unsigned long long int now_ms = su::MicroTimeCR();
+    std::cout << "now_ms=" << now_ms << std::endl;
+    std::cout << "DateToTimeStamp=" << su::DateToTimeStamp(20250311) << std::endl;
+    std::cout << "DateYearMonthDayString=" << su::DateYearMonthDayString(now_ms/1000000) << std::endl;
+    std::cout << "DateYearMonthString=" << su::DateYearMonthString(now_ms/1000000) << std::endl;
+    uint64_t uuid = su::sp_uuid();
+    std::cout << "uuid=" << uuid << std::endl;
     return 0;
 }

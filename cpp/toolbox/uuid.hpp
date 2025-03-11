@@ -8,6 +8,7 @@
 #include "time_function.hpp"
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <stdexcept>
 
 namespace su

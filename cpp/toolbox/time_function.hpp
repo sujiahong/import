@@ -4,6 +4,7 @@
 #include <ctime>
 #include<sys/time.h>
 #include <string>
+#include <cstring>
 #include <chrono>
 
 #define DAY_SECONDS 86400
