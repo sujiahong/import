@@ -23,8 +23,8 @@ int RangeRandom(int a_min, int a_max)
     static std::random_device rd;
     static std::mt19937 gen(rd());
     static std::uniform_int_distribution<> distrib(a_min, a_max);
-    int index = distrib(gen);
-    return index;
+    int rand_num = distrib(gen);
+    return rand_num;
 }
 /////产生[min--max]范围随机数，这个不对，概率不均匀
 int RangeRandomV2(int a_min, int a_max)
@@ -32,6 +32,19 @@ int RangeRandomV2(int a_min, int a_max)
     if (a_max < a_min)
         return 0;
     return rand() % (a_max-a_min+1) + a_min;
+}
+
+int UniformRangeRandom(int a_min, int a_max)
+{
+    if (a_max < a_min)
+        return 0;
+    int range = a_max - a_min + 1;
+    int bucket_size = RAND_MAX / range;
+    int r;
+    do {
+        r = rand() / bucket_size; ///映射到 [0, range-1]
+    }while(r >= range);
+    return r + a_min;
 }
 
 /////1-n数，m元排列,,, floyd 随机取样

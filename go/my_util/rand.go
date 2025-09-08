@@ -56,6 +56,15 @@ func SafeRandRange(min, max int64) int64 {
 func RandRange(min, max int64) int64 {
 	if max < min {
 		return 0
+	} else if max == min {
+		return min
 	}
-	return rand.Int63()%(max-min+1) + min
+	return rand.Int63n(max-min+1) + min
+}
+
+func RandShuffle(length int, list []int) {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(length, func(i, j int) {
+		list[i], list[j] = list[j], list[i]
+	})
 }

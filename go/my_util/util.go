@@ -12,6 +12,8 @@ import (
 	"runtime/debug"
 	"sync"
 	"time"
+	"math"
+	"sync/atomic"
 )
 
 /*
@@ -97,7 +99,7 @@ func DelayRun(a_dealy uint32, a_f func()) {
 	go func() {
 		defer RecoverPanic()
 		timer := time.NewTimer(time.Duration(a_dealy) * time.Millisecond)
-		timer.Stop()
+		defer timer.Stop()
 		select {
 		case <-timer.C:
 			a_f()
@@ -224,4 +226,13 @@ func AsyncMustSuccessIO(f func() error) {
 			}
 		}
 	}()
+}
+
+var incrUniqId uint32 ///////自增唯一ID   此进程内唯一
+func GetIncrUUID() uint64 { ///获取累加进程内唯一ID
+	if incrUniqId >= math.MaxUint32 {
+		atomic.StoreUint32(&incrUniqId, 0)
+		return 0
+	}
+	return uint64(atomic.AddUint32(&incrUniqId, 1))
 }

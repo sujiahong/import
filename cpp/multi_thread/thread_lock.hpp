@@ -133,12 +133,11 @@ public:
 };
 
 ////////////////////////条件变量/////////////////////////
-class Condition: public Noncopyable
+class Condition: public Noncopyable //////加锁 → 检查条件 → 等待 → 修改条件 → 通知 → 解锁。
 {
 private:
     LockMutex& m_mutex_;
     pthread_cond_t m_cond_;
-
 public:
     Condition(LockMutex& a_mutex):m_mutex_(a_mutex)
     {
@@ -160,11 +159,8 @@ public:
 public:
 /*
 对于 wait() 端：
-
 1. 必须与 mutex 一起使用，该布尔表达式的读写需受此 mutex 保护
-
 2. 在 mutex 已上锁的时候才能调用 wait()
-
 3. 把判断布尔条件和 wait() 放到 while 循环中
 */
     inline void Wait()
@@ -177,11 +173,8 @@ public:
     }
 /*
 对于 signal/broadcast 端：
-
 1. 不一定要在 mutex 已上锁的情况下调用 signal （理论上）
-
 2. 在 signal 之前一般要修改布尔表达式
-
 3. 修改布尔表达式通常要用 mutex 保护（至少用作 full memory barrier）
 */
     inline void Notify()

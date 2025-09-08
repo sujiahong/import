@@ -34,7 +34,10 @@ public:
     TaskPool():m_mutex_(),m_cond_(m_mutex_),m_task_list_()
     {}
     ~TaskPool()
-    {}
+    {
+        MUTEX_GUARD(m_mutex_)
+        m_cond_.NotifyAll();
+    }
 public:
     /////////////
     void PopTask(T& a_task)
