@@ -7,7 +7,7 @@ const path = require('path');
 let gameConfig = {};
 
 // 创建Worker
-const worker = new Worker(path.join(__dirname, 'config-worker.js'));
+const worker = new Worker(path.join(__dirname, 'config_worker.js'));
 
 // 监听配置更新
 worker.on('message', (newConfig) => {
