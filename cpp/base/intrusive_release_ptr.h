@@ -4,15 +4,15 @@
 #define __INTROUSIVE_RELEASE_PTR_H__ 
 
 namespace su {
-class base_release
+class base_ref
 {
 private:
     int refence_count_ = 0;////引用计数
 public:
-    inline base_release(): refence_count_(0)
+    inline base_ref(): refence_count_(0)
     {}
 
-    virtual ~base_release()
+    virtual ~base_ref()
     {}
     inline int add_ref()
     {
