@@ -23,7 +23,7 @@ func CrossProduct(p1, p2 *Point) float64 {
 }
 /////是否在三角形内
 func IsInTriangle(points []*Point, tp *Point) bool {
-	if len(points) <= 0 {
+	if len(points) < 3 {
 		return false
 	}
 	var nCurCrossProduct float64 = 0.0
@@ -42,22 +42,29 @@ func IsInTriangle(points []*Point, tp *Point) bool {
 }
 ////根据直线求交点
 func CrossPoint(p1, p2, p3, p4 *Point) *Point {
-	d1 := (p1.X - p2.X)*(p3.Y - p4.Y)
-	d2 := (p3.X - p4.X)*(p1.Y - p2.Y)
-	xp := d2 - d1
-	yp := d1 - d2
-	if xp == 0 || yp == 0 {
+	// 空指针检查
+	if p1 == nil || p2 == nil || p3 == nil || p4 == nil {
 		return nil
 	}
-	xm := (p3.X - p4.X)*(p2.X * p1.Y - p1.X * p2.Y) - (p1.X - p2.X)*(p4.X * p3.Y - p3.X * p4.Y)
-	ym := (p3.Y - p4.Y)*(p2.Y * p1.X - p1.Y * p2.X) - (p1.Y - p2.Y)*(p4.Y * p3.X - p3.Y * p4.X)
+	
+	// 计算分母
+	denominator := (p1.X - p2.X)*(p3.Y - p4.Y) - (p1.Y - p2.Y)*(p3.X - p4.X)
+	if denominator == 0 {
+		// 两直线平行或重合
+		return nil
+	}
+	
+	// 计算分子
+	xm := ((p1.X*p2.Y - p1.Y*p2.X)*(p3.X - p4.X) - (p1.X - p2.X)*(p3.X*p4.Y - p3.Y*p4.X))
+	ym := ((p1.X*p2.Y - p1.Y*p2.X)*(p3.Y - p4.Y) - (p1.Y - p2.Y)*(p3.X*p4.Y - p3.Y*p4.X))
+	
 	return &Point{
-		X: xm/xp,
-		Y: ym/yp,
+		X: xm/denominator,
+		Y: ym/denominator,
 	}
 }
 func LineSegmentOnPoint(p1, p2 *Point) *Point {
-	r1 := my_util.RandRange(0, 9999)
+	r1 := my_util.SafeRandRange(0, 9999)
 	r2 := 10000 - r1
 	f1 := float64(r1) / 10000.0
 	f2 := float64(r2) / 10000.0
@@ -68,8 +75,8 @@ func LineSegmentOnPoint(p1, p2 *Point) *Point {
 }
 ///三角形行内随机点
 func TriangleInnerPoint(p1, p2, p3 *Point) *Point {
-	r1 := my_util.RandRange(1, 9998)
-	r2 := my_util.RandRange(1, 9999 - r1)
+	r1 := my_util.SafeRandRange(1, 9998)
+	r2 := my_util.SafeRandRange(1, 9999 - r1)
 	r3 := 10000 - r1 - r2
 	f1 := float64(r1) / 10000.0
 	f2 := float64(r2) / 10000.0
@@ -89,9 +96,11 @@ func PolygonInnerRandPoint(points []*Point) *Point {
 		return points[0]
 	}else if ln == 0{
 		return nil
+	} else if ln < 3 {
+		return nil
 	}
-	triangleNum := (ln -3)+1
-	k := my_util.RandRange(1, int64(triangleNum))
+	triangleNum := ln - 2
+	k := my_util.SafeRandRange(1, int64(triangleNum))
 	p1 := points[0]
 	p2 := points[int(k)]
 	p3 := points[int(k)+1]

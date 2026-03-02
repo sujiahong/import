@@ -31,8 +31,8 @@ struct _double_list_head
 };
 
 #define INIT_HEAD(ptr) \
-    ptr->prev_ptr = 0; \
-    ptr->next_ptr = 0;
+    (ptr)->prev_ptr = 0; \
+    (ptr)->next_ptr = 0;
 
 inline bool dlh_is_empty(struct _double_list_head *a_root)
 {
@@ -52,7 +52,8 @@ inline void dlh_left_push(_double_list_head* a_root, _double_list_head* a_node)
     {
         a_root->prev_ptr = a_node;
         a_root->next_ptr = a_node;
-        INIT_HEAD(a_node)
+        a_node->prev_ptr = 0;
+        a_node->next_ptr = 0;
     }
 }
 
@@ -68,7 +69,10 @@ inline _double_list_head* dlh_left_pop(_double_list_head* a_root)
             tmp_ptr->next_ptr = 0;
         }
         else
-            INIT_HEAD(a_root)
+        {
+            a_root->prev_ptr = 0;
+            a_root->next_ptr = 0;
+        }
     }
     return tmp_ptr;
 }
@@ -96,8 +100,9 @@ inline void dlh_right_push(_double_list_head* a_root, _double_list_head* a_node)
     else
     {
         a_root->prev_ptr = a_node;
-        a_root->next_ptr = a_root;
-        INIT_HEAD(a_node)
+        a_root->next_ptr = a_node;
+        a_node->prev_ptr = 0;
+        a_node->next_ptr = 0;
     }
 }
 
@@ -113,7 +118,10 @@ inline _double_list_head* dlh_right_pop(_double_list_head* a_root)
             tmp_ptr->prev_ptr = 0;
         }
         else
-            INIT_HEAD(a_root)
+        {
+            a_root->prev_ptr = 0;
+            a_root->next_ptr = 0;
+        }
     }
     return tmp_ptr;
 }
@@ -140,11 +148,6 @@ inline void dlh_remove(_double_list_head* a_root, _double_list_head* a_node)
     else
         a_root->next_ptr = a_node->prev_ptr;
     INIT_HEAD(a_node)
-}
-
-inline bool dlh_is_empty(_double_list_head* a_root)
-{
-    return (0 == a_root->prev_ptr && 0 == a_root->next_ptr);
 }
 
 inline bool dlh_is_correlation(_double_list_head* a_root, _double_list_head* a_node)

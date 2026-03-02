@@ -22,7 +22,7 @@ int RangeRandom(int a_min, int a_max)
         return 0;
     static std::random_device rd;
     static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> distrib(a_min, a_max);
+    std::uniform_int_distribution<> distrib(a_min, a_max);
     int rand_num = distrib(gen);
     return rand_num;
 }
@@ -50,7 +50,7 @@ int UniformRangeRandom(int a_min, int a_max)
 /////1-n数，m元排列,,, floyd 随机取样
 void FloydSample(int n, int m, std::vector<int>& a_vec)
 {
-    if (m > n || m < 0)
+    if (m > n || m < 0 || n < 0)
     {
         a_vec.clear();
         return;
@@ -81,7 +81,6 @@ void DisorderArray(std::vector<T>& a_vec)
 {
     T tmp;
     unsigned int rand_num = 0;
-    srand(SecondTime());
     for(unsigned int i = 0; i < a_vec.size(); ++i)
     {
         rand_num = RangeRandom(i, a_vec.size()-1);
@@ -91,17 +90,13 @@ void DisorderArray(std::vector<T>& a_vec)
         a_vec[rand_num] = tmp;
     }
 }
-
+///////数组乱序   这个更好
 template<typename T>
 void DisorderArrayV1(std::vector<T>& a_vec)
 {
-    if (a_vec.size() == 0)
-    {
-        return;
-    }
+    if (a_vec.size() == 0) return;
     T tmp;
     unsigned int rand_num = 0;
-    srand(SecondTime());
     for(unsigned int i = a_vec.size()-1; i > 0; i--)
     {
         rand_num = RangeRandom(0, i);

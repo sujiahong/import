@@ -59,7 +59,11 @@ func RandRange(min, max int64) int64 {
 	} else if max == min {
 		return min
 	}
-	return rand.Int63n(max-min+1) + min
+	// 确保rand包已经初始化
+	if r == nil {
+		r = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	return r.Int63n(max-min+1) + min
 }
 
 func RandShuffle(length int, list []int) {

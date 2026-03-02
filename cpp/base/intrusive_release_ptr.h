@@ -1,7 +1,10 @@
 ////////侵入式智能指针
 
-#ifndef __INTROUSIVE_PTR_H__
-#define __INTROUSIVE_PTR_H__
+#ifndef INTRUSIVE_PTR_H
+#define INTRUSIVE_PTR_H
+
+#include <cstddef>
+#include <utility>
 
 namespace su {
 class BaseRef

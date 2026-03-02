@@ -49,7 +49,7 @@ func ReadCSVFile(name string, fn func([]string)) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("line: ", rec)
+		// fmt.Println("line: ", rec)
 		fn(rec)
 	}
 }
