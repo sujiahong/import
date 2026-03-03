@@ -12,5 +12,5 @@ messages = [
     ("human", "今天天气怎么样？"),
 ]
 
-for chunk in llm.stream(messages)
-    print(chunk.text(), end="")
+for chunk in llm.stream(messages):
+    print(chunk.text, end="")
