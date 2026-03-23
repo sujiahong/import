@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"time"
@@ -147,14 +148,33 @@ func clientExample() {
 }
 
 func transportExample() {
-	_, err := net.Listen("tcp", "127.0.0.1:9000")
+	ln, err := net.Listen("tcp", "127.0.0.1:9000")
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// Custom server that echoes messages
 	server := transport.NewServer("127.0.0.1:9000", func(conn net.Conn) *transport.Transport {
-		return transport.NewTransport(conn, &transport.LengthPrefixEncoder{}, &transport.LengthPrefixEncoder{})
+		tp := transport.NewTransport(conn, &transport.LengthPrefixEncoder{}, &transport.LengthPrefixEncoder{})
+
+		// Start a goroutine to echo messages for this connection
+		go func() {
+			for {
+				msg, err := tp.Recv(context.Background())
+				if err != nil {
+					return
+				}
+				// Echo back
+				tp.Send(context.Background(), msg)
+			}
+		}()
+
+		return tp
 	})
+	// We manually set listener because NewServer tries to Listen again which would fail or we need to pass address.
+	// Actually NewServer calls Listen. So we should close our temp listener or just let NewServer do it.
+	// But NewServer takes addr string.
+	ln.Close() // Close our check listener
 
 	if err := server.Start(); err != nil {
 		log.Fatal(err)
@@ -166,22 +186,28 @@ func transportExample() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Transport client connected")
 
-	msg := &transport.Message{
-		Header: map[string]string{"type": "request"},
-		Body:   []byte("Hello, Server!"),
+	// Send multiple messages to test stream handling
+	for i := 0; i < 5; i++ {
+		msg := &transport.Message{
+			Header: map[string]string{"type": "request", "id": fmt.Sprintf("%d", i)},
+			Body:   []byte(fmt.Sprintf("Message %d", i)),
+		}
+		if err := client.Send(context.Background(), msg); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Sent message %d", i)
 	}
 
-	if err := client.Send(context.Background(), msg); err != nil {
-		log.Fatal(err)
+	for i := 0; i < 5; i++ {
+		log.Printf("Waiting for response %d", i)
+		resp, err := client.Recv(context.Background())
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Received response: %s (ID: %s)", string(resp.Body), resp.Header["id"])
 	}
-
-	resp, err := client.Recv(context.Background())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("Received response: %s", string(resp.Body))
 
 	client.Close()
 	server.Stop()
@@ -198,6 +224,10 @@ func rpcClientServerExample() {
 	server.Register("Multiply", func(ctx context.Context, args interface{}) (interface{}, error) {
 		a := args.(rpc.Args)
 		return &Reply{Result: a.A * a.B}, nil
+	})
+
+	server.Register("Panic", func(ctx context.Context, args interface{}) (interface{}, error) {
+		panic("something went wrong")
 	})
 
 	go func() {
@@ -232,6 +262,14 @@ func rpcClientServerExample() {
 		log.Printf("Call error: %v", err)
 	} else {
 		log.Printf("Multiply result: %d", reply.Result)
+	}
+
+	// Test Panic
+	err = client.Call(context.Background(), "Panic", args, reply)
+	if err != nil {
+		log.Printf("Panic test (expected error): %v", err)
+	} else {
+		log.Printf("Panic test failed (unexpected success)")
 	}
 
 	server.Stop()

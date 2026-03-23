@@ -33,10 +33,13 @@ func (e *LengthPrefixEncoder) Encode(msg *Message) ([]byte, error) {
 		return nil, err
 	}
 
-	result := make([]byte, 4+len(headerBytes)+len(body))
-	binary.BigEndian.PutUint32(result[0:4], uint32(len(headerBytes)))
-	copy(result[4:4+len(headerBytes)], headerBytes)
-	copy(result[4+len(headerBytes):], body)
+	payloadLen := 4 + len(headerBytes) + len(body)
+	result := make([]byte, 4+payloadLen)
+
+	binary.BigEndian.PutUint32(result[0:4], uint32(payloadLen))
+	binary.BigEndian.PutUint32(result[4:8], uint32(len(headerBytes)))
+	copy(result[8:8+len(headerBytes)], headerBytes)
+	copy(result[8+len(headerBytes):], body)
 
 	return result, nil
 }
@@ -139,7 +142,7 @@ func (t *Transport) Start() {
 func (t *Transport) readLoop() {
 	defer t.wg.Done()
 
-	buf := make([]byte, 8192)
+	headerBuf := make([]byte, 4)
 	for {
 		select {
 		case <-t.ctx.Done():
@@ -148,15 +151,23 @@ func (t *Transport) readLoop() {
 		}
 
 		t.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		n, err := t.conn.Read(buf)
-		if err != nil {
+
+		if _, err := io.ReadFull(t.conn, headerBuf); err != nil {
 			if err != io.EOF {
+				// log error
 			}
 			t.cancel()
 			return
 		}
 
-		msg, err := t.decoder.Decode(buf[:n])
+		frameLen := binary.BigEndian.Uint32(headerBuf)
+		data := make([]byte, frameLen)
+		if _, err := io.ReadFull(t.conn, data); err != nil {
+			t.cancel()
+			return
+		}
+
+		msg, err := t.decoder.Decode(data)
 		if err != nil {
 			continue
 		}

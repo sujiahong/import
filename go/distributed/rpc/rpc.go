@@ -121,6 +121,16 @@ func (s *RPCServer) handleConnection(conn net.Conn) {
 }
 
 func (s *RPCServer) handleRequest(conn net.Conn, req Request, encoder *json.Encoder) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp := Response{
+				ID:    req.ID,
+				Error: fmt.Sprintf("internal server error: %v", r),
+			}
+			encoder.Encode(resp)
+		}
+	}()
+
 	s.mu.RLock()
 	handler, ok := s.handlers[req.Method]
 	s.mu.RUnlock()

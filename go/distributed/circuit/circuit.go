@@ -54,7 +54,7 @@ func (c *Circuit) Execute(ctx context.Context, fn func() error) error {
 		c.failures++
 		c.lastFailureTime = time.Now()
 
-		if c.failures >= c.threshold {
+		if c.state == StateHalfOpen || c.failures >= c.threshold {
 			c.setState(StateOpen)
 		}
 		return err
@@ -62,7 +62,6 @@ func (c *Circuit) Execute(ctx context.Context, fn func() error) error {
 
 	c.successes++
 	if c.state == StateHalfOpen {
-		c.successes++
 		if c.successes >= c.halfOpenRequests {
 			c.setState(StateClosed)
 		}

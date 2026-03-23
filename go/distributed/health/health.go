@@ -133,6 +133,8 @@ type HealthCheckManager struct {
 
 type HealthStatus struct {
 	InstanceID  string
+	Address     string
+	Port        int
 	Healthy     bool
 	LastCheck   time.Time
 	Latency     time.Duration
@@ -156,6 +158,8 @@ func (m *HealthCheckManager) AddInstance(instanceID, addr string, port int) {
 
 	m.instances[instanceID] = &HealthStatus{
 		InstanceID: instanceID,
+		Address:    addr,
+		Port:       port,
 		Healthy:    true,
 	}
 }
@@ -245,22 +249,28 @@ func (m *HealthCheckManager) checkAll() {
 	}
 	m.mu.RUnlock()
 
+	var wg sync.WaitGroup
 	for _, id := range instances {
-		select {
-		case <-m.ctx.Done():
-			return
-		default:
-		}
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			select {
+			case <-m.ctx.Done():
+				return
+			default:
+			}
 
-		m.mu.RLock()
-		status := m.instances[id]
-		m.mu.RUnlock()
+			m.mu.RLock()
+			status := m.instances[id]
+			m.mu.RUnlock()
 
-		if status != nil {
-			result := m.checker.Check(m.ctx, id, "", 0)
-			m.updateStatus(result)
-		}
+			if status != nil {
+				result := m.checker.Check(m.ctx, id, status.Address, status.Port)
+				m.updateStatus(result)
+			}
+		}(id)
 	}
+	wg.Wait()
 }
 
 func (m *HealthCheckManager) updateStatus(result *CheckResult) {
