@@ -91,7 +91,8 @@
         "fstream": "cpp",
         "iomanip": "cpp",
         "span": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "random": "cpp"
     },
     "go.buildOnSave": "workspace",
     "go.lintOnSave": "package",

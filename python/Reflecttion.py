@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional
+from AgentLLM import AgentLLM
 
 class Memory:
     """
@@ -10,48 +11,47 @@ class Memory:
         """
         self.records: List[Dict[str, Any]] = []
 
-        def add_record(self, record_type: str, content: str):
-            """
-            向记忆中添加一条新纪录。
-            参数：
-            - record_type(str): 记录的类型 ('execution' or 'reflection')
-            - context(str): 记录的具体内容（例如：生成的代码或反思的反馈）。
-            """
-            record = {"type": record_type, "content": content}
-            self.records.append(record)
+    def add_record(self, record_type: str, content: str):
+        """
+        向记忆中添加一条新纪录。
+        参数：
+        - record_type(str): 记录的类型 ('execution' or 'reflection')
+        - context(str): 记录的具体内容（例如：生成的代码或反思的反馈）。
+        """
+        record = {"type": record_type, "content": content}
+        self.records.append(record)
 
-        def get_trajectory(self) -> str:
-            """
-            将所有记忆记录格式化为一个连贯的字符串文本，用于构建提示词
-            """
-            trajectory_parts = []
-            for record in self.records:
-                if record["type"] == "execution":
-                    trajectory_parts.append(f"--- 上一轮尝试（代码）---\n{record['content']}")
-                elif record["type"] == "reflection":
-                    trajectory_parts.append(f"--- 评审员反馈 ---\n{record['content']}")
+    def get_trajectory(self) -> str:
+        """
+        将所有记忆记录格式化为一个连贯的字符串文本，用于构建提示词
+        """
+        trajectory_parts = []
+        for record in self.records:
+            if record["type"] == "execution":
+                trajectory_parts.append(f"--- 上一轮尝试（代码）---\n{record['content']}")
+            elif record["type"] == "reflection":
+                trajectory_parts.append(f"--- 评审员反馈 ---\n{record['content']}")
+        return "\n\n".join(trajectory_parts)
 
-            return "\n\n".join(trajectory_parts)
+    def get_last_execution(self) -> Optional[str]:
+        """
+        获取最近一次的执行结果（例如：最新生成的代码）。
+        如果不存在，则返回 None
+        """
+        for record in reversed(self.records):
+            if record["type"] == "execution":
+                return record["content"]
+        return None
 
-        def get_last_execution(self) -> Optional[str]:
-            """
-            获取最近一次的执行结果（例如：最新生成的代码）。
-            如果不存在，则返回 None
-            """
-            for record in reversed(self.records):
-                if record["type"] == "execution":
-                    return record["content"]
-            return None
-
-INITIAL_PROMPT_TEMPLATE = f"""
+INITIAL_PROMPT_TEMPLATE = """
 你是一位资深的python程序员。请根据以下要求，编写一个python函数。
 你的代码必须包含完整的函数签名、文档字符串，并遵循PEP8编码规范。
 
-要求： {task}
+要求: {task}
 请直接输出代码，不要包含任何额外的解释。
 """
 
-REFLECT_PROMPT_TEMPLATE = f"""
+REFLECT_PROMPT_TEMPLATE = """
 你是一位极其严格的代码评审专家和资深算法工程师，对代码的性能有极致的要求。
 你的任务是评审以下Python代码，并专注找出在<strong>算法效率</strong>上的主要原因。
 
@@ -69,7 +69,7 @@ REFLECT_PROMPT_TEMPLATE = f"""
 请直接输出你的反馈，不要包含任何额外的解释。
 """
 
-REFINE_PROMPT_TEMPLATE = f"""
+REFINE_PROMPT_TEMPLATE = """
 你是一位资深的Python程序员。你正在根据一位代码评审专家的反馈来优化你的代码。
 
 #原始任务
@@ -137,3 +137,10 @@ class ReflectionAgent:
         final_code = self.memory.get_last_execution()
         print(f"\n ---任务完成 --- \n最终生成代码： \n```python\n{final_code}\n```")
         return final_code
+
+
+## 测试代码
+if __name__ == "__main__":
+    llm_client = AgentLLM()
+    reflection_agent = ReflectionAgent(llm_client)
+    reflection_agent.run("编写一个Python函数，找出1到n之间所有的素数 (prime numbers)。")

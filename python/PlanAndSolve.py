@@ -2,7 +2,7 @@
 from codecs import escape_encode
 
 
-PLANNER_FROMPT_TEMPLATE = f"""
+PLANNER_FROMPT_TEMPLATE = """
 你是一个顶级的AI规划专家，你的任务是将用户提出的复杂问题分解成一个由多个简单步骤组成的行动计划。
 请确保计划中每个步骤都是一个独立的，可执行的子任务，并且严格按照逻辑顺序排列。
 你的输出必须是一个python列表，其中每一个元素都是一个描述子任务的字符串。
@@ -85,7 +85,7 @@ class Executor:
             prompt = EXECUTOR_PROMPT_TEMPLATE.format(
                 question=question,
                 plan=plan,
-                history=history if history else "无"
+                history=history if history else "无",
                 current_step=step
             )
 
