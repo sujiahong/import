@@ -1,6 +1,7 @@
 
 from codecs import escape_encode
-
+from AgentLLM import AgentLLM
+import ast
 
 PLANNER_FROMPT_TEMPLATE = """
 你是一个顶级的AI规划专家，你的任务是将用户提出的复杂问题分解成一个由多个简单步骤组成的行动计划。
@@ -30,7 +31,7 @@ class Planner:
         # 使用流式输出来获取完整的技划
         response_text = self.llm_client.think(messages=messages) or ""
 
-        print(f"计划以生成：\n{response_text}")
+        print(f"计划已生成：\n{response_text}")
 
         #解析LLM输出的列表字符串
         try:
@@ -80,7 +81,7 @@ class Executor:
         history = "" # 用于存储历史步骤和结果的字符串
         print("\n --- 正在执行计划 ---")
 
-        for i, step in enuerate(plan):
+        for i, step in enumerate(plan):
             print(f'\n -> 正在执行步骤 {i+1}/{len(plan)} : {step}')
             prompt = EXECUTOR_PROMPT_TEMPLATE.format(
                 question=question,
@@ -126,3 +127,11 @@ class PlanAndSolveAgent:
         # 2. 调用执行器执行计划
         final_answer = self.executor.execute(question, plan)
         print(f"\n --- 任务完成 --- \n最终答案：{final_answer}")
+
+if __name__ == "__main__":
+    # 创建LLM客户端实例
+    llm_client = AgentLLM()
+    # 创建智能体实例
+    agent = PlanAndSolveAgent(llm_client)
+    # 运行智能体
+    agent.run("一个水果店周一卖出了15个苹果。周二卖出的苹果数量是周一的两倍。周三卖出的数量比周二少了5个。请问这三天总共卖出了多少个苹果？")

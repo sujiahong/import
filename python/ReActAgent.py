@@ -1,44 +1,7 @@
 from typing import Any
-
-
-from serpapi import SerpapiClient
-
-def search(query: str) -> str:
-    '''
-    一个基于SerpApi的实战网页搜索引擎工具。
-    它会智能的解析搜索结果，优先返回直接答案或知识图谱信息。
-    '''
-    print(f"🔍正在执行 [SerpApi] 网页搜索: {query}")
-    try:
-        api_key = os.getenv("SERPAPI_API_KEY")
-        if not api_key:
-            return "错误: 未设置 SERPAPI_API_KEY 环境变量"
-        
-        params = {
-            "engine": "google",
-            "q": query,
-            "api_key": api_key,
-            "gl": "cn",     #国家代码
-            "hl": "zh-CN",  #语言代码
-        }
-        client = SerpApiClient(params)
-        results = client.get_dict()
-        if "answer_box_list" in results:
-            return "\n".join(results["answer_box_list"])
-        if "answer_box" in results and "answer" in results["answer_box"]:
-            return results["answer_box"]["answer"]
-        if "knowledge_graph" in results and "description" in results["knowledge_graph"]:
-            return results["knowledge_graph"]["description"]
-        if "organic_results" in results and results["organic_results"]:
-            # 如果没有直接答案，则返回前三个有机结果的摘要
-            snippets = [
-                f"[{i+1}]' {res.get('title', '')}\n{res.get("snippet", '')}"
-                for i, res in enumerate[Any](results["organic_results"][:3])
-            ]
-            return "\n\n".join(snippets)
-        return f"对不起，没有找到关于 '{query}' 的信息。"
-    except Exception as e:
-        return f"搜索时发生错误: {e}"
+from ToolExecutor import ToolExecutor, search
+from AgentLLM import AgentLLM
+import re
 
 
 #ReAct 提示词模版
@@ -63,11 +26,33 @@ History: {history}
 """
 
 class ReActAgent:
-    def __init__(self, llm_client: HelloAgentsLLM, tool_excutor: ToolExecutor, max_steps: int = 5):
+    def __init__(self, llm_client: HelloAgentsLLM, tool_excutor: ToolExecutor, max_steps: int = 2):
         self.llm_client = llm_client
         self.tool_excutor = tool_excutor
         self.max_steps = max_steps
         self.history = []
+
+    def _parse_output(self, text: str):
+        '''
+        解析LLM的输出文本，提取Thought和Action。
+        '''
+        print(f"解析原始输出：{text}")
+        # Thought: 匹配到Action或文本末尾
+        thought_match = re.search(r"Thought:\s*(.*?)(?=\nAction:|$)", text, re.DOTALL)
+        # Action: 匹配到文本末尾
+        action_match = re.search(r"Action:\s*(.*?)$", text,  re.DOTALL)
+        thought = thought_match.group(1).strip() if thought_match else None
+        action = action_match.group(1).strip() if action_match else None
+        return thought, action
+
+    def _parse_action(self, action_text: str):
+        '''
+        解析Action字符串，提取工具名称和输入参数。
+        '''
+        match = re.match(r"(\w+)\[(.*)\]", action_text, re.DOTALL)
+        if match:
+            return match.group(1), match.group(2)
+        return None, None
 
     def run(self, question: str):
         '''
@@ -131,24 +116,13 @@ class ReActAgent:
         print("已到达最大步数，流程终止。")
         return None
 
-
-    def _parse_output(self, text: str):
-        '''
-        解析LLM的输出文本，提取Thought和Action。
-        '''
-        # Thought: 匹配到Action或文本末尾
-        thought_match = re.search(r"Thought:\s*(.*?)(?=\nAction:|$)", text, re.DOTALL)
-        # Action: 匹配到文本末尾
-        action_match = re.search(r"Action:\s*(.*?)$", text,  re.DOTALL)
-        thought = thought_match.group(1).strip() if thought_match else None
-        action = action_match.group(1).strip() if action_match else None
-        return thought, action
-
-    def _parse_action(self, action_text: str):
-        '''
-        解析Action字符串，提取工具名称和输入参数。
-        '''
-        match = re.match(r"(\w+)\[(.*)\]", action_text, re.DOTALL)
-        if match:
-            return match.group(1), match.group(2)
-        return None, None
+if __name__ == "__main__":
+    # 创建LLM客户端实例
+    llm_client = AgentLLM()
+    tool_executor = ToolExecutor()
+    search_desc = "一个网页搜索引擎。当你需要回答关于时事、事实以及在你的知识库中找不到的信息时，应使用此工具。"
+    tool_executor.registerTool("Search", search_desc, search)
+    # 创建智能体实例
+    agent = ReActAgent(llm_client, tool_executor)
+    # 运行智能体
+    agent.run("华为最新的手机是哪一款？它的主要卖点是什么？")
