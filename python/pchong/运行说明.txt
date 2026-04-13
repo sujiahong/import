@@ -1,0 +1,116 @@
+# 爬虫需求总结工具 - 运行说明
+
+## 快速开始
+
+### 1. 安装依赖包
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 运行主程序
+```bash
+python create_crawler_requirements.py
+```
+
+### 3. 查看结果
+程序将生成 `爬虫需求总结.xlsx` 文件，包含：
+- 10个详细的爬虫需求分析
+- 格式美化的Excel表格
+- 汇总统计信息
+
+## 详细步骤
+
+### 方法一：直接运行（推荐）
+1. 打开终端或命令提示符
+2. 导航到项目目录：
+   ```bash
+   cd /Users/sujiahong/workspace/import/python/pchong
+   ```
+3. 运行主程序：
+   ```bash
+   python create_crawler_requirements.py
+   ```
+
+### 方法二：使用测试脚本
+1. 运行测试脚本确保一切正常：
+   ```bash
+   python test_script.py
+   ```
+
+### 方法三：手动检查
+1. 查看创建的文件：
+   - `create_crawler_requirements.py` - 主程序
+   - `requirements.txt` - 依赖包列表
+   - `README.md` - 项目说明
+   - `test_script.py` - 测试脚本
+
+## 生成的Excel文件内容
+
+### 工作表1：爬虫需求详情
+包含10个爬虫需求的详细信息，每个需求包含：
+- 需求编号和名称
+- 应用场景和目标网站
+- 技术复杂度评级（低/中/高）
+- 反爬虫难度评级（低/中/高）
+- 法律合规风险评级（低/中/高）
+- 数据更新频率和预计数据量
+- 关键技术要点和建议工具
+- 数据用途和备注
+
+### 工作表2：汇总统计
+- 技术复杂度分布统计
+- 反爬虫难度分布统计
+- 总体需求数量统计
+
+## 包含的10个爬虫需求
+
+1. **CR001**: 电商价格监控爬虫
+2. **CR002**: 新闻资讯聚合爬虫
+3. **CR003**: 社交媒体情感分析爬虫
+4. **CR004**: 招聘网站职位信息爬虫
+5. **CR005**: 房地产市场价格爬虫
+6. **CR006**: 股票金融数据爬虫
+7. **CR007**: 学术论文文献爬虫
+8. **CR008**: 旅游网站酒店价格爬虫
+9. **CR009**: 视频平台热门内容爬虫
+10. **CR010**: 政府公开数据爬虫
+
+## 常见问题
+
+### Q1: 运行时报错 "ModuleNotFoundError"
+A: 请确保已安装所有依赖包：
+```bash
+pip install pandas openpyxl
+```
+
+### Q2: 如何修改爬虫需求？
+A: 编辑 `create_crawler_requirements.py` 文件中的 `create_crawler_requirements()` 函数，修改需求数据后重新运行程序。
+
+### Q3: 生成的Excel文件在哪里？
+A: 程序运行后会在当前目录生成 `爬虫需求总结.xlsx` 文件。
+
+### Q4: 可以添加更多爬虫需求吗？
+A: 可以，在 `create_crawler_requirements()` 函数中添加新的字典到requirements列表中即可。
+
+## 文件说明
+
+- `create_crawler_requirements.py` - 主程序，创建Excel文件
+- `requirements.txt` - Python依赖包列表
+- `README.md` - 详细的项目说明文档
+- `test_script.py` - 测试脚本，验证程序功能
+- `运行说明.txt` - 本文件，快速使用指南
+
+## 注意事项
+
+1. 首次运行前请确保Python环境已正确安装
+2. 建议使用虚拟环境管理依赖包
+3. Excel文件使用openpyxl库生成，兼容Microsoft Excel和LibreOffice
+
+## 技术支持
+
+如有问题，请参考以下步骤：
+1. 查看README.md中的详细说明
+2. 运行测试脚本检查问题
+3. 确保依赖包版本正确
+
+祝您使用愉快！
