@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -23,7 +22,7 @@ type ServiceRegistry interface {
 	Register(ctx context.Context, instance *ServiceInstance) error
 	Deregister(ctx context.Context, serviceName, instanceID string) error
 	Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error)
-	Watch(serviceName string, handler func([]*ServiceInstance)) error
+	Watch(serviceName string, handler func([]*ServiceInstance)) (func(), error)
 	Heartbeat(ctx context.Context, instanceID string) error
 }
 
@@ -83,11 +82,12 @@ func (r *inMemoryRegistry) Discover(ctx context.Context, serviceName string) ([]
 	return nil, fmt.Errorf("service %s not found", serviceName)
 }
 
-func (r *inMemoryRegistry) Watch(serviceName string, handler func([]*ServiceInstance)) error {
+func (r *inMemoryRegistry) Watch(serviceName string, handler func([]*ServiceInstance)) (func(), error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	ch := make(chan []*ServiceInstance, 10)
+	done := make(chan struct{})
 	r.watchers[serviceName] = append(r.watchers[serviceName], ch)
 
 	go func() {
@@ -95,10 +95,16 @@ func (r *inMemoryRegistry) Watch(serviceName string, handler func([]*ServiceInst
 			select {
 			case instances := <-ch:
 				handler(instances)
+			case <-done:
+				return
 			}
 		}
 	}()
-	return nil
+
+	cancel := func() {
+		close(done)
+	}
+	return cancel, nil
 }
 
 func (r *inMemoryRegistry) Heartbeat(ctx context.Context, instanceID string) error {
@@ -116,13 +122,25 @@ func (r *inMemoryRegistry) Heartbeat(ctx context.Context, instanceID string) err
 }
 
 func (r *inMemoryRegistry) notifyWatchers(serviceName string) {
-	if watchers, ok := r.watchers[serviceName]; ok {
-		instances, _ := r.Discover(context.Background(), serviceName)
-		for _, w := range watchers {
-			select {
-			case w <- instances:
-			default:
+	watchers, ok := r.watchers[serviceName]
+	if !ok {
+		return
+	}
+
+	var instances []*ServiceInstance
+	if svcInstances, ok := r.services[serviceName]; ok {
+		instances = make([]*ServiceInstance, 0, len(svcInstances))
+		for _, inst := range svcInstances {
+			if inst.Status == "healthy" {
+				instances = append(instances, inst)
 			}
+		}
+	}
+
+	for _, w := range watchers {
+		select {
+		case w <- instances:
+		default:
 		}
 	}
 }

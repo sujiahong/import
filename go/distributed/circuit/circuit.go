@@ -72,18 +72,20 @@ func (c *Circuit) Execute(ctx context.Context, fn func() error) error {
 
 func (c *Circuit) allowRequest() bool {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	state := c.state
+	lastFailure := c.lastFailureTime
+	c.mu.RUnlock()
 
-	switch c.state {
+	switch state {
 	case StateClosed:
 		return true
 	case StateOpen:
-		if time.Since(c.lastFailureTime) > c.timeout {
-			c.mu.RUnlock()
+		if time.Since(lastFailure) > c.timeout {
 			c.mu.Lock()
-			c.setState(StateHalfOpen)
+			if c.state == StateOpen {
+				c.setState(StateHalfOpen)
+			}
 			c.mu.Unlock()
-			c.mu.RLock()
 		}
 		return false
 	case StateHalfOpen:
