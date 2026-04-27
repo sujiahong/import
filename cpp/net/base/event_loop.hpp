@@ -13,7 +13,7 @@
 #include <pthread.h>
 #include <assert.h>
 
-#include "../../toolbox/original_dependence.hpp"
+#include "../../base/original_base.h"
 #include "../../toolbox/time_function.hpp"
 #include "epoll.h"
 #include "channel.h"

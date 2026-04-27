@@ -8,8 +8,8 @@
 #include <functional>
 #include <string>
 #include <sys/epoll.h>
-#include "define_struct.h"
-#include "../../toolbox/original_dependence.hpp"
+#include "base_define.h"
+#include "../../base/original_base.h"
 
 
 namespace su

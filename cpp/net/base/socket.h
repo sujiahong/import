@@ -5,7 +5,7 @@
 #ifndef __SOCKET_H__
 #define __SOCKET_H__
 
-#include "../toolbox/original_dependence.hpp"
+#include "../base/original_base.h"
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>

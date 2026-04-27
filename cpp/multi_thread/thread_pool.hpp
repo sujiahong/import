@@ -1,16 +1,16 @@
 //////
-////线程池,,,创建线程池的程序不能提前结束
+////线程池
 /////
 
 #ifndef _THREAD_POOL_HPP_
 #define _THREAD_POOL_HPP_
 
-#include "../toolbox/original_dependence.hpp"
+#include "../base/original_base.h"
 #include "thread_lock.hpp"
 #include "task_pool.hpp"
 #include <pthread.h>
-#include <unistd.h>
 #include <list>
+#include <atomic>
 
 #define MAX_THREAD_NUM 50
 #define DEFAULT_THREAD_NUM 10
@@ -21,9 +21,9 @@ class ThreadPool: public Noncopyable
 {
 private:
     unsigned int m_thread_num_;
+    std::atomic<bool> m_running_;
     pthread_t m_tid_arr_[MAX_THREAD_NUM];
     TaskPool<TaskBase*> m_task_pool_;
-    bool m_running_;
 public:
     ThreadPool()
     {
@@ -34,39 +34,36 @@ public:
     {
         if (a_num > MAX_THREAD_NUM)
             a_num = MAX_THREAD_NUM;
+        if (a_num < 1)
+            a_num = 1;
         m_thread_num_ = a_num;
         Init();
     }
     ~ThreadPool()
     {
-        m_running_= false;
+        Stop();
     }
 private:
     static void* ThreadFunc(void* a_arg)
     {
-        ThreadPool* self = (ThreadPool*)a_arg;
-        TaskBase* task_ptr = 0;
-        while (self != 0)
+        ThreadPool* self = static_cast<ThreadPool*>(a_arg);
+        TaskBase* task_ptr = nullptr;
+        while (self->m_running_)
         {
-            if (self->m_running_)
+            self->PopTask(task_ptr);
+            if (task_ptr == nullptr) break;
+            task_ptr->RunOnce();
+            if (task_ptr->ClearStat())
             {
-                self->PopTask(task_ptr);
-                task_ptr->RunOnce();
-                if (task_ptr->ClearStat())
-                {
-                    std::cout<<" Info: 删除内存 task_ptr="<<task_ptr<<std::endl;
-                    delete task_ptr;
-                    task_ptr = 0;
-                }
-            }else {
-                usleep(100000);
+                delete task_ptr;
+                task_ptr = nullptr;
             }
         }
-        return 0;
+        return nullptr;
     }
     void Init()
     {
-        m_running_ = false;
+        m_running_ = true;
         int ret = 0;
         for (unsigned int i = 0; i < m_thread_num_; ++i)
         {
@@ -76,7 +73,6 @@ private:
                 std::cout<<" Error: create thread失败 ret="<<ret<<" i="<<i<<std::endl;
                 continue;
             }
-            std::cout<<" Info: pthread_id="<<m_tid_arr_[i]<<std::endl;
             ret = pthread_detach(m_tid_arr_[i]);
             if (ret != 0)
             {
@@ -90,30 +86,28 @@ public:
     {
         m_running_ = true;
     }
-    /////////////
+    inline void Stop()
+    {
+        m_running_ = false;
+        m_task_pool_.Stop();
+    }
     inline void PopTask(TaskBase*& a_task_ptr)
     {
         m_task_pool_.PopTask(a_task_ptr);
     }
-    ///////////////
     inline void PushTask(TaskBase* a_task_ptr)
     {
         m_task_pool_.PushTask(a_task_ptr);
     }
-    ////////////
     inline unsigned int GetTaskNum()
     {
         return m_task_pool_.TaskNum();
     }
-    ////////////
     inline unsigned int GetThreadNum()
     {
         return m_thread_num_;
     }
 };
-
-
-
 
 }
 #endif

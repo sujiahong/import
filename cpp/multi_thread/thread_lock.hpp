@@ -8,7 +8,7 @@
 #define _THREAD_LOCK_HPP_
 
 #include <pthread.h>
-#include "../toolbox/original_dependence.hpp"
+#include "../base/original_base.h"
 #include <iostream>
 
 namespace su
@@ -32,6 +32,7 @@ public:
             std::cout<<" Error: attr_settype 锁属性设置失败 ret="<<ret<<std::endl;
         }
         ret = pthread_mutex_init(&m_mutex_, &attr);
+        pthread_mutexattr_destroy(&attr);
         if (ret != 0)
         {
             std::cout<<" Error: lock_init 锁初始化失败 ret="<<ret<<std::endl;

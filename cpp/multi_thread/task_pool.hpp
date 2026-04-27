@@ -5,7 +5,7 @@
 #ifndef _TASK_POOL_HPP_
 #define _TASK_POOL_HPP_
 
-#include "../toolbox/original_dependence.hpp"
+#include "../base/original_base.h"
 #include "thread_lock.hpp"
 #include <list>
 #include <cassert>
@@ -28,38 +28,43 @@ class TaskPool: public Noncopyable
 {
 private:
     mutable LockMutex m_mutex_;
-    Condition m_cond_;   
+    Condition m_cond_;
     std::list<T> m_task_list_;
+    bool m_stop_;
 public:
-    TaskPool():m_mutex_(),m_cond_(m_mutex_),m_task_list_()
+    TaskPool():m_mutex_(),m_cond_(m_mutex_),m_task_list_(),m_stop_(false)
     {}
     ~TaskPool()
     {
         MUTEX_GUARD(m_mutex_)
+        m_stop_ = true;
         m_cond_.NotifyAll();
     }
 public:
-    /////////////
+    void Stop()
+    {
+        MUTEX_GUARD(m_mutex_)
+        m_stop_ = true;
+        m_cond_.NotifyAll();
+    }
     void PopTask(T& a_task)
     {
         MUTEX_GUARD(m_mutex_);
-        while (m_task_list_.empty())
+        while (m_task_list_.empty() && !m_stop_)
         {
             m_cond_.Wait();
         }
+        if (m_stop_) return;
         assert(!m_task_list_.empty());
         a_task = std::move(m_task_list_.front());
         m_task_list_.pop_front();
-        //std::cout<<" Info: 线程执行22222 tid="<<pthread_self()<<std::endl;
     }
-    ///////////////
     void PushTask(const T& a_task)
     {
         MUTEX_GUARD(m_mutex_)
         m_task_list_.push_back(a_task);
         m_cond_.Notify();
     }
-    ///////////////
     inline unsigned int TaskNum()
     {
         MUTEX_GUARD(m_mutex_)

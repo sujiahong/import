@@ -1,5 +1,5 @@
-#ifndef _ORIGINAL_DEPENDENCE_HPP_
-#define _ORIGINAL_DEPENDENCE_HPP_
+#ifndef _ORIGINAL_BASE_H_
+#define _ORIGINAL_BASE_H_
 
 #include <pthread.h>
 #include <assert.h>
@@ -180,7 +180,7 @@ class Singleton :public Noncopyable
 public:
     static T& Instance()
     {
-        phread_once(&m_ponce_, &Singleton::init);
+        pthread_once(&m_ponce_, &Singleton::init);
         return *m_value_;
     }
 private:

@@ -1,7 +1,7 @@
 #ifndef __BUFFER_H__
 #define __BUFFER_H__
 
-#include "../../toolbox/original_dependence.hpp"
+#include "../../base/original_base.h"
 
 #include <vector>
 
