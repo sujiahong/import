@@ -73,6 +73,29 @@ public:
             ptr_->add_ref();
         }
     }
+    
+    // 从派生类指针构造基类智能指针
+    template <typename Q>
+    inline IntrusivePtr(const IntrusivePtr<Q>& right)
+    {
+        ptr_ = dynamic_cast<ElementType*>(right.get());
+        if (ptr_)
+        {
+            ptr_->add_ref();
+        }
+    }
+    
+    // 从派生类指针移动构造基类智能指针
+    template <typename Q>
+    inline IntrusivePtr(IntrusivePtr<Q>&& right) noexcept
+    {
+        ElementType* temp = dynamic_cast<ElementType*>(right.get());
+        if (temp)
+        {
+            ptr_ = temp;
+            right.release();
+        }
+    }
     inline IntrusivePtr& operator=(const IntrusivePtr& right)
     {
         if (ptr_)
@@ -96,6 +119,39 @@ public:
         if (ptr_)
         {
             ptr_->add_ref();
+        }
+        return *this;
+    }
+    
+    // 从派生类智能指针赋值给基类智能指针
+    template <typename Q>
+    inline IntrusivePtr& operator=(const IntrusivePtr<Q>& right)
+    {
+        if (ptr_)
+        {
+            ptr_->reduce_ref();
+        }
+        ptr_ = dynamic_cast<ElementType*>(right.get());
+        if (ptr_)
+        {
+            ptr_->add_ref();
+        }
+        return *this;
+    }
+    
+    // 从派生类智能指针移动赋值给基类智能指针
+    template <typename Q>
+    inline IntrusivePtr& operator=(IntrusivePtr<Q>&& right) noexcept
+    {
+        if (ptr_)
+        {
+            ptr_->reduce_ref();
+        }
+        ElementType* temp = dynamic_cast<ElementType*>(right.get());
+        if (temp)
+        {
+            ptr_ = temp;
+            right.release();
         }
         return *this;
     }
@@ -216,6 +272,14 @@ public:
     inline ElementType* get() const
     {
         return ptr_;
+    }
+    
+    // 释放指针所有权
+    inline ElementType* release()
+    {
+        ElementType* temp = ptr_;
+        ptr_ = NULL;
+        return temp;
     }
     
     // 交换两个智能指针
