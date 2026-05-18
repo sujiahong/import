@@ -79,4 +79,14 @@ long __builtin_expect(long exp, long value);
 #endif
 #endif
 
+
+/*
+使用 C 和 C++ 的用户来说，可能有三种不同的编译选项：
+其中 CFLAGS 对应 C 语言特有的编译选项、
+CXXFLAGS 对应是 C++ 特有的编译选项、
+CPPFLAGS 则对应 C 和 C++ 共有的编译选项。
+但是在链接阶段，C 和 C++ 的链接选项是通用的，因此这个时候已经不再有 C 和 C++ 语言的区别，
+它们的目标文件的类型是相同的。
+*/
+
 #endif
