@@ -1,0 +1,5 @@
+帮我实现process_grid.go里的ComputeCollectionNearGrid函数，计算藏品周围格子，在判断半径judgeRadius内，把结果存到GridCollectionMap，格子大小100000。
+process_task_area.go里面开发一个函数，实现环绕绕多边形圈数的统计。
+在多边形内统计圈数，出多边形取消统计。支持1/2圈，1/3圈。把多边形分成20个扇区，记录船走的扇区统计圈数
+config_id type sub_type condition_pos_area condition_time_area collocation_id find_value circle_value angle stay_time adventure_level
+config_id type sub_type condition_pos_area event_pro condition_time_area collocation_id find_value circle_value angle stay_time adventure_level
