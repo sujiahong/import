@@ -3,17 +3,17 @@ package my_util
 import (
 	"errors"
 	"fmt"
+	slog "go.local/su_log"
 	"go.uber.org/zap"
-	slog "go/su_log"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sync"
-	"time"
-	"math"
 	"sync/atomic"
+	"time"
 )
 
 /*
@@ -64,10 +64,10 @@ func GetZeroTime(timestamp uint32) int64 {
 	var t time.Time
 	if timestamp == 0 {
 		t = time.Now()
-	}else {
+	} else {
 		t = time.Unix(int64(timestamp), 0)
 	}
-	zero_time := time.Date(t.Year(), t.Month(), t.Day(), 0,0,0,0, t.Location())
+	zero_time := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 	return zero_time.Unix()
 }
 
@@ -88,7 +88,7 @@ func GetTimePrintString() string {
 
 func RecoverPanic() {
 	if err := recover(); err != nil {
-        timeStr := GetTimePrintString()
+		timeStr := GetTimePrintString()
 		fmt.Println(timeStr+" panic: recovered err=", err, string(debug.Stack()))
 		slog.Error(timeStr+" panic: recovered err", zap.Any("err:", err), zap.Any("stack:", string(debug.Stack())))
 	}
@@ -123,14 +123,14 @@ func IntervalRun(a_interval, a_times uint32, a_f func()) {
 				count++
 			}
 			select {
-			case <- ticker.C:
+			case <-ticker.C:
 				a_f()
 			}
 		}
 	}()
 }
 
-//文件拷贝，从a拷到b
+// 文件拷贝，从a拷到b
 func CopyFile(a_src_file, a_dst_file string) {
 	var err error
 	var srcFileST *os.File
@@ -173,7 +173,7 @@ func CopyFile(a_src_file, a_dst_file string) {
 	}
 }
 
-////判断管道是否关闭
+// //判断管道是否关闭
 func IsChanClosed(ch chan int) bool {
 	select {
 	case _, received := <-ch:
@@ -206,9 +206,9 @@ func SyncMustSuccessIO(f func() error) {
 		err := f()
 		if err != nil {
 			fmt.Println("SyncMustSuccessIO err=", zap.Error(err))
-			time.Sleep(time.Second*5)
-		}else {
-			return  /////结束
+			time.Sleep(time.Second * 5)
+		} else {
+			return /////结束
 		}
 	}
 }
@@ -220,9 +220,9 @@ func AsyncMustSuccessIO(f func() error) {
 			err := f()
 			if err != nil {
 				fmt.Println("AsyncMustSuccessIO err=", zap.Error(err))
-				time.Sleep(time.Second*time.Duration(RandRange(10,20)))
-			}else {
-				return  /////结束协程
+				time.Sleep(time.Second * time.Duration(RandRange(10, 20)))
+			} else {
+				return /////结束协程
 			}
 		}
 	}()

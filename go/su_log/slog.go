@@ -9,7 +9,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var logger *zap.Logger
+var logger = zap.NewNop()
+
 func Init(file_name string) {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -25,7 +26,7 @@ func Init(file_name string) {
 	logger = zap.New(core)
 }
 
-func getCallerInfoForLog() (callerFields []zap.Field){
+func getCallerInfoForLog() (callerFields []zap.Field) {
 	pc, file, line, ok := runtime.Caller(2)
 	if !ok {
 		return
@@ -35,24 +36,24 @@ func getCallerInfoForLog() (callerFields []zap.Field){
 	return
 }
 
-func Debug(msg string, fields ...zap.Field){
+func Debug(msg string, fields ...zap.Field) {
 	callerFields := getCallerInfoForLog()
 	fields = append(fields, callerFields...)
 	logger.Debug(msg, fields...)
 }
-func Info(msg string, fields ...zap.Field){
+func Info(msg string, fields ...zap.Field) {
 	callerFields := getCallerInfoForLog()
 	fields = append(fields, callerFields...)
 	logger.Info(msg, fields...)
 }
 
-func Warn(msg string, fields ...zap.Field){
+func Warn(msg string, fields ...zap.Field) {
 	callerFields := getCallerInfoForLog()
 	fields = append(fields, callerFields...)
 	logger.Warn(msg, fields...)
 }
 
-func Error(msg string, fields ...zap.Field){
+func Error(msg string, fields ...zap.Field) {
 	callerFields := getCallerInfoForLog()
 	fields = append(fields, callerFields...)
 	logger.Error(msg, fields...)

@@ -8,9 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 )
 
 func ReadTxtFile(name string, fn func([]string)) {

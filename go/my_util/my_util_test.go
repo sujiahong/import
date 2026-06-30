@@ -1,19 +1,19 @@
 package my_util_test
 
 import (
-	"go/my_util"
-	"fmt"
-	"testing"
 	"errors"
+	"fmt"
+	"go.local/my_util"
+	"testing"
 	"time"
 )
 
-func TestGetLogFileLine(t *testing.T){
+func TestGetLogFileLine(t *testing.T) {
 	line := my_util.GetLogFileLine()
 	fmt.Println(line)
 }
 
-func TestGetZeroTime(t *testing.T){
+func TestGetZeroTime(t *testing.T) {
 	fmt.Println("@@@@@", my_util.GetTodayZeroTime())
 }
 
@@ -36,6 +36,6 @@ func TestAsyncMustSuccessIO(t *testing.T) {
 	my_util.AsyncMustSuccessIO(func() error {
 		return errors.New("test error")
 	})
-	time.Sleep(time.Second*50)
+	time.Sleep(time.Second * 50)
 	fmt.Println("22222222")
 }

@@ -1,0 +1,21 @@
+把背景和入场动画做成和时间相关的，0点到5点使用bg3和CG4，6点到11点使用bg4和CG2，12点到18点使用bg1和CG1，17点到23点使用bg2和CG3。进入游戏根据时间范围加载哪个背景和入场动画
+{"ChildMap":[{"cmt":10,"st":16890,"ht":1},{"cmt":13,"st":20117,"ht":1},{"cmt":37,"st":20128,"ht":1},{"cmt":38,"st":20247,"ht":1}]}
+
+使用mcp加个登录按钮，登录按钮在的时候，Btn_Main,Btn_Main2,Btn_Main3,RankingButton按钮不显示，登录校验成功，Btn_Main,Btn_Main2,Btn_Main3,RankingButton按钮显示。支持微信平台和抖音
+使用mcp添加一个排行榜界面，使用闯关的数量排行，如果闯关数量相同，谁先上报数据的排前面
+
+
+登录微信和抖音成功后，在登录自己服务。闯关成功上报排名，每日挑战不上报。只有在微信和抖音开发环境才调用登录和上报排名。获取排名
+
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "",
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-pro[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1m]",
+    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
+    "ANTHROPIC_REASONING_MODEL": "deepseek-v4-pro[1m]"
+  },
+
+  在doll目录下添加一个task，每天凌晨0点执行一次，查询redis UN_CGK_REDIS_TYPE_LEAGUE_PERIOD_POWER数据，zset类型，前41名。保存在user_rank_map_，服务启动时执行一下
+  在activiy_data目录添加一个task，获取活动数据，查询redis UN_CGK_REDIS_TYPE_MAP_ESCORT_CAR_ACTIVE_INFO，string类型， 保存活动数据。仿照update_league_power_rank_task写

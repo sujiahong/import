@@ -1,60 +1,152 @@
 /*
- * @Copyright: 
+ * @Copyright:
  * @file name: File name
  * @Data: Do not edit
- * @LastEditor: 
- * @LastData: 
- * @Describe: 
+ * @LastEditor:
+ * @LastData:
+ * @Describe:
  */
 package su_mysql
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"sync"
+	"time"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	slog "go/su_log"
+	slog "go.local/su_log"
 	"go.uber.org/zap"
 	//"time"
 )
 
+type MysqlConfig struct {
+	Uname           string
+	Passwd          string
+	Addr            string
+	DbName          string
+	DSN             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+}
+
 type MysqlClient struct {
-	Db      *sqlx.DB
-	Uname   string
-	Passwd  string
-	Addr    string
-	DbName  string
+	Db         *sqlx.DB
+	Uname      string
+	Passwd     string
+	Addr       string
+	DbName     string
 	MaxOpenCns int
 	MaxIdleCns int
+	cfg        MysqlConfig
+	mu         sync.RWMutex
 }
 
-func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns, a_max_idle_conns int) *MysqlClient{
-	return &MysqlClient{Uname: a_uname, Passwd: a_passwd, Addr: a_addr, DbName: a_dbname, MaxOpenCns: a_max_open_conns, MaxIdleCns: a_max_idle_conns}
+func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns, a_max_idle_conns int) *MysqlClient {
+	mc, _ := NewMysqlClientWithConfig(MysqlConfig{
+		Uname:        a_uname,
+		Passwd:       a_passwd,
+		Addr:         a_addr,
+		DbName:       a_dbname,
+		MaxOpenConns: a_max_open_conns,
+		MaxIdleConns: a_max_idle_conns,
+	})
+	return mc
 }
 
-func (mc *MysqlClient)Connect() error{
-	var err error
-	mc.Db, err = sqlx.Open("mysql", mc.Uname+":"+mc.Passwd+"@tcp("+mc.Addr+")/"+mc.DbName)
+func NewMysqlClientWithConfig(cfg MysqlConfig) (*MysqlClient, error) {
+	cfg = defaultMysqlConfig(cfg)
+	if cfg.DSN == "" && (cfg.Uname == "" || cfg.Addr == "" || cfg.DbName == "") {
+		return nil, errors.New("mysql config is incomplete")
+	}
+	return &MysqlClient{
+		Uname:      cfg.Uname,
+		Passwd:     cfg.Passwd,
+		Addr:       cfg.Addr,
+		DbName:     cfg.DbName,
+		MaxOpenCns: cfg.MaxOpenConns,
+		MaxIdleCns: cfg.MaxIdleConns,
+		cfg:        cfg,
+	}, nil
+}
+
+func (mc *MysqlClient) Connect() error {
+	if mc == nil {
+		return errors.New("mysql client is nil")
+	}
+	cfg := defaultMysqlConfig(mc.cfg)
+	if cfg.DSN == "" {
+		cfg.Uname = firstNonEmpty(cfg.Uname, mc.Uname)
+		cfg.Passwd = firstNonEmpty(cfg.Passwd, mc.Passwd)
+		cfg.Addr = firstNonEmpty(cfg.Addr, mc.Addr)
+		cfg.DbName = firstNonEmpty(cfg.DbName, mc.DbName)
+	}
+	db, err := sqlx.Open("mysql", mysqlDSN(cfg))
 	if err != nil {
 		slog.Error("mysql 连接failed", zap.Error(err))
 		return err
 	}
-	mc.Db.SetMaxOpenConns(mc.MaxOpenCns)
-	mc.Db.SetMaxIdleConns(mc.MaxIdleCns)
-	if err := mc.Db.Ping(); err != nil {
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		slog.Error("mysql Ping failed", zap.Error(err))
 		return err
+	}
+	mc.mu.Lock()
+	oldDB := mc.Db
+	mc.Db = db
+	mc.cfg = cfg
+	mc.Uname = cfg.Uname
+	mc.Passwd = cfg.Passwd
+	mc.Addr = cfg.Addr
+	mc.DbName = cfg.DbName
+	mc.MaxOpenCns = cfg.MaxOpenConns
+	mc.MaxIdleCns = cfg.MaxIdleConns
+	mc.mu.Unlock()
+	if oldDB != nil {
+		_ = oldDB.Close()
 	}
 	return nil
 }
 
-func (mc *MysqlClient)Close() {
-	err := mc.Db.Close()
-	slog.Info("mysql Close ", zap.Error(err))
+func (mc *MysqlClient) dbLocked() (*sqlx.DB, error) {
+	if mc == nil || mc.Db == nil {
+		return nil, errors.New("mysql client is not connected")
+	}
+	return mc.Db, nil
 }
 
-func (mc *MysqlClient)Insert(a_cmd string, a_parm ...interface{}) error {
-	r, err := mc.Db.Exec(a_cmd, a_parm...)
+func (mc *MysqlClient) Close() error {
+	if mc == nil {
+		return nil
+	}
+	mc.mu.Lock()
+	if mc.Db == nil {
+		mc.mu.Unlock()
+		return nil
+	}
+	db := mc.Db
+	mc.Db = nil
+	mc.mu.Unlock()
+	err := db.Close()
+	slog.Info("mysql Close ", zap.Error(err))
+	return err
+}
+
+func (mc *MysqlClient) Insert(a_cmd string, a_parm ...interface{}) error {
+	return mc.InsertContext(context.Background(), a_cmd, a_parm...)
+}
+
+func (mc *MysqlClient) InsertContext(ctx context.Context, a_cmd string, a_parm ...interface{}) error {
+	r, err := mc.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
-		slog.Error("mysql insert failed", zap.Error(err))
 		return err
 	}
 	id, err := r.LastInsertId()
@@ -66,10 +158,13 @@ func (mc *MysqlClient)Insert(a_cmd string, a_parm ...interface{}) error {
 	return nil
 }
 
-func (mc *MysqlClient)Update(a_cmd string, a_parm ...interface{}) error {
-	r, err := mc.Db.Exec(a_cmd, a_parm...)
+func (mc *MysqlClient) Update(a_cmd string, a_parm ...interface{}) error {
+	return mc.UpdateContext(context.Background(), a_cmd, a_parm...)
+}
+
+func (mc *MysqlClient) UpdateContext(ctx context.Context, a_cmd string, a_parm ...interface{}) error {
+	r, err := mc.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
-		slog.Error("mysql update failed", zap.Error(err))
 		return err
 	}
 	row, err := r.RowsAffected()
@@ -81,10 +176,13 @@ func (mc *MysqlClient)Update(a_cmd string, a_parm ...interface{}) error {
 	return nil
 }
 
-func (mc *MysqlClient)Delete(a_cmd string, a_parm ...interface{}) error {
-	r, err := mc.Db.Exec(a_cmd, a_parm...)
+func (mc *MysqlClient) Delete(a_cmd string, a_parm ...interface{}) error {
+	return mc.DeleteContext(context.Background(), a_cmd, a_parm...)
+}
+
+func (mc *MysqlClient) DeleteContext(ctx context.Context, a_cmd string, a_parm ...interface{}) error {
+	r, err := mc.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
-		slog.Error("mysql delete failed", zap.Error(err))
 		return err
 	}
 	row, err := r.RowsAffected()
@@ -96,12 +194,83 @@ func (mc *MysqlClient)Delete(a_cmd string, a_parm ...interface{}) error {
 	return nil
 }
 
-func (mc *MysqlClient)Select(a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
-	err := mc.Db.Select(a_dest, a_cmd, a_parm...)
+func (mc *MysqlClient) Select(a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
+	return mc.SelectContext(context.Background(), a_dest, a_cmd, a_parm...)
+}
+
+func (mc *MysqlClient) ExecContext(ctx context.Context, a_cmd string, a_parm ...interface{}) (result sql.Result, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if mc == nil {
+		return nil, errors.New("mysql client is not connected")
+	}
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	db, err := mc.dbLocked()
+	if err != nil {
+		return nil, err
+	}
+	result, err = db.ExecContext(ctx, a_cmd, a_parm...)
+	if err != nil {
+		slog.Error("mysql exec failed", zap.Error(err))
+	}
+	return result, err
+}
+
+func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if mc == nil {
+		return errors.New("mysql client is not connected")
+	}
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	db, err := mc.dbLocked()
+	if err != nil {
+		return err
+	}
+	err = db.SelectContext(ctx, a_dest, a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql query failed", zap.Error(err))
 		return err
 	}
 	slog.Info("success ", zap.String("a_cmd", a_cmd))
 	return nil
+}
+
+func defaultMysqlConfig(cfg MysqlConfig) MysqlConfig {
+	if cfg.MaxOpenConns <= 0 {
+		cfg.MaxOpenConns = 10
+	}
+	if cfg.MaxIdleConns <= 0 || cfg.MaxIdleConns > cfg.MaxOpenConns {
+		cfg.MaxIdleConns = cfg.MaxOpenConns
+		if cfg.MaxIdleConns > 5 {
+			cfg.MaxIdleConns = 5
+		}
+	}
+	if cfg.ConnMaxLifetime <= 0 {
+		cfg.ConnMaxLifetime = time.Hour
+	}
+	if cfg.ConnMaxIdleTime <= 0 {
+		cfg.ConnMaxIdleTime = 10 * time.Minute
+	}
+	return cfg
+}
+
+func mysqlDSN(cfg MysqlConfig) string {
+	if cfg.DSN != "" {
+		return cfg.DSN
+	}
+	return cfg.Uname + ":" + cfg.Passwd + "@tcp(" + cfg.Addr + ")/" + cfg.DbName
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
