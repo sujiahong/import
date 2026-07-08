@@ -129,3 +129,19 @@ func TestTcpClientHeartbeatStopsOnRemoteClose(t *testing.T) {
 		t.Fatal("timeout waiting for tcp client heartbeat to stop")
 	}
 }
+
+func TestTcpConnCloseClearsHeartbeat(t *testing.T) {
+	conn := newTcpConn(nil)
+	conn.PingPongMap.Store(uint64(1), 1)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	count := 0
+	conn.PingPongMap.Range(func(k, v interface{}) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Fatalf("heartbeat count = %d, want 0", count)
+	}
+}

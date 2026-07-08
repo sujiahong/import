@@ -6,7 +6,6 @@ import (
 	slog "go.local/su_log"
 	"go.uber.org/zap"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -132,45 +131,26 @@ func IntervalRun(a_interval, a_times uint32, a_f func()) {
 
 // 文件拷贝，从a拷到b
 func CopyFile(a_src_file, a_dst_file string) {
-	var err error
-	var srcFileST *os.File
-	srcFileST, err = os.Open(a_src_file)
+	if err := CopyFileE(a_src_file, a_dst_file); err != nil {
+		slog.Error("CopyFile err=", zap.Error(err))
+	}
+}
+
+func CopyFileE(aSrcFile, aDstFile string) error {
+	srcFile, err := os.Open(aSrcFile)
 	if err != nil {
-		slog.Error("src os.Open err=", zap.Error(err))
-		if !os.IsExist(err) {
-			srcFileST, err = os.Create(a_src_file)
-			if err != nil {
-				slog.Error("src os.Create err=", zap.Error(err))
-			}
-		}
-		return
+		return err
 	}
-	var dstFileST *os.File
-	dstFileST, err = os.OpenFile(a_dst_file, os.O_RDWR|os.O_CREATE, 0777)
+	defer srcFile.Close()
+	dstFile, err := os.OpenFile(aDstFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
-		slog.Error("dst os.OpenFile err=", zap.Error(err))
-		return
+		return err
 	}
-	defer srcFileST.Close()
-	defer dstFileST.Close()
-	buf := make([]byte, 4098)
-	for {
-		n, err := srcFileST.Read(buf)
-		//slog.Info("打印 ", zap.Any("n=",n), zap.Any("a_src_file",a_src_file))
-		if err == io.EOF && n == 0 {
-			slog.Info("srcFileST.Read读取完毕", zap.Any("read n", n))
-			break
-		}
-		if err != nil {
-			slog.Error("srcFileST.Read err=", zap.Error(err))
-			break
-		}
-		wn, err := dstFileST.Write(buf[:n])
-		if err != nil {
-			slog.Error("dstFileST.Write err=", zap.Error(err), zap.Any("wn=", wn))
-			break
-		}
+	defer dstFile.Close()
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
 	}
+	return dstFile.Sync()
 }
 
 // //判断管道是否关闭
@@ -184,16 +164,18 @@ func IsChanClosed(ch chan int) bool {
 }
 
 func WaitGroupWithTimeout(wg *sync.WaitGroup, timeout uint32) error {
-	c := make(chan int)
+	if wg == nil {
+		return nil
+	}
+	c := make(chan struct{})
 	go func() {
 		defer RecoverPanic()
 		wg.Wait()
-		c <- 0
 		close(c)
 	}()
 	select {
 	case <-c:
-		fmt.Println("wait group finish!!!")
+		// fmt.Println("wait group finish!!!")
 		return nil
 	case <-time.After(time.Duration(timeout) * time.Millisecond):
 		fmt.Println("warn: timeout waiting for wait group!!!")
@@ -230,9 +212,9 @@ func AsyncMustSuccessIO(f func() error) {
 
 var incrUniqId uint32 ///////自增唯一ID   此进程内唯一
 func GetIncrUUID() uint64 { ///获取累加进程内唯一ID
-	if incrUniqId >= math.MaxUint32 {
-		atomic.StoreUint32(&incrUniqId, 0)
-		return 0
+	next := atomic.AddUint32(&incrUniqId, 1)
+	if next == 0 {
+		next = atomic.AddUint32(&incrUniqId, 1)
 	}
-	return uint64(atomic.AddUint32(&incrUniqId, 1))
+	return uint64(next)
 }

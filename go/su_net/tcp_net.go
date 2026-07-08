@@ -73,14 +73,28 @@ func (tc *TcpConn) SendBytes(bs []byte) error {
 }
 
 func (tc *TcpConn) Close() error {
-	if tc == nil || tc.conn == nil {
+	if tc == nil {
 		return nil
 	}
 	var err error
 	tc.closeOnce.Do(func() {
+		tc.ClearHeartbeat()
+		if tc.conn == nil {
+			return
+		}
 		err = tc.conn.Close()
 	})
 	return err
+}
+
+func (tc *TcpConn) ClearHeartbeat() {
+	if tc == nil {
+		return
+	}
+	tc.PingPongMap.Range(func(k, v interface{}) bool {
+		tc.PingPongMap.Delete(k)
+		return true
+	})
 }
 
 func (tc *TcpConn) Ping() error {
@@ -265,9 +279,11 @@ func (ts *TcpServer) acceptLoop() {
 					return
 				}
 				taskDP := *dp
-				ts.pool.SendTask(taskDP.Head.RouteId, func() {
+				if !ts.pool.SendTask(taskDP.Head.RouteId, func() {
 					ts.handler(conn, &taskDP)
-				})
+				}) {
+					slog.Warn("tcp server task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))
+				}
 			})
 		}()
 	}

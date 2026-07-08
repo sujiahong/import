@@ -54,14 +54,28 @@ func (wc *WSConn) SendBytes(bs []byte) error {
 }
 
 func (wc *WSConn) Close() error {
-	if wc == nil || wc.conn == nil {
+	if wc == nil {
 		return nil
 	}
 	var err error
 	wc.closeOnce.Do(func() {
+		wc.ClearHeartbeat()
+		if wc.conn == nil {
+			return
+		}
 		err = wc.conn.Close()
 	})
 	return err
+}
+
+func (wc *WSConn) ClearHeartbeat() {
+	if wc == nil {
+		return
+	}
+	wc.PingPongMap.Range(func(k, v interface{}) bool {
+		wc.PingPongMap.Delete(k)
+		return true
+	})
 }
 
 func (wc *WSConn) Ping() error {
@@ -260,9 +274,12 @@ func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			taskDP := *dp
-			ws.pool.SendTask(taskDP.Head.RouteId, func() {
+			taskDP.Data = append([]byte(nil), dp.Data...)
+			if !ws.pool.SendTask(taskDP.Head.RouteId, func() {
 				ws.handler(conn, &taskDP)
-			})
+			}) {
+				slog.Warn("websocket server task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))
+			}
 		})
 	}()
 }

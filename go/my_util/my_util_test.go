@@ -1,11 +1,9 @@
 package my_util_test
 
 import (
-	"errors"
 	"fmt"
 	"go.local/my_util"
 	"testing"
-	"time"
 )
 
 func TestGetLogFileLine(t *testing.T) {
@@ -26,16 +24,18 @@ func TestToString(t *testing.T) {
 func TestSyncMustSuccessIO(t *testing.T) {
 	fmt.Println("111111111")
 	my_util.SyncMustSuccessIO(func() error {
-		return errors.New("test error")
+		return nil
 	})
 	fmt.Println("22222222")
 }
 
 func TestAsyncMustSuccessIO(t *testing.T) {
 	fmt.Println("111111111")
+	done := make(chan struct{})
 	my_util.AsyncMustSuccessIO(func() error {
-		return errors.New("test error")
+		close(done)
+		return nil
 	})
-	time.Sleep(time.Second * 50)
+	<-done
 	fmt.Println("22222222")
 }

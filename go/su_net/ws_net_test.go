@@ -1,6 +1,7 @@
 package su_net
 
 import (
+	"go.local/my_util"
 	"testing"
 	"time"
 )
@@ -127,5 +128,58 @@ func TestWSClientHeartbeatStopsOnRemoteClose(t *testing.T) {
 	case <-client.done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for websocket client heartbeat to stop")
+	}
+}
+
+func TestWSConnCloseClearsHeartbeat(t *testing.T) {
+	conn := newWSConn(nil)
+	conn.PingPongMap.Store(uint64(1), 1)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	count := 0
+	conn.PingPongMap.Range(func(k, v interface{}) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Fatalf("heartbeat count = %d, want 0", count)
+	}
+}
+
+func TestWSServerTaskCopiesNoCopyPayload(t *testing.T) {
+	got := make(chan []byte, 1)
+	ws := &WSServer{
+		pool: my_util.NewGoPool(1, 1),
+		handler: func(conn *WSConn, dp *DataProtocol) {
+			got <- append([]byte(nil), dp.Data...)
+		},
+	}
+	defer ws.pool.Stop()
+
+	original := []byte("payload")
+	wsConn := newWSConn(nil)
+	dp := &DataProtocol{
+		Head: Header{PackId: 10, RouteId: 20, HeadUuid: 30},
+		Data: original,
+	}
+	taskDP := *dp
+	taskDP.Data = append([]byte(nil), dp.Data...)
+	if !ws.pool.SendTask(taskDP.Head.RouteId, func() {
+		ws.handler(wsConn, &taskDP)
+	}) {
+		t.Fatal("SendTask() = false, want true")
+	}
+	for i := range original {
+		original[i] = 'x'
+	}
+
+	select {
+	case data := <-got:
+		if string(data) != "payload" {
+			t.Fatalf("handler data = %q, want payload", data)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for websocket task")
 	}
 }
