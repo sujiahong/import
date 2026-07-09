@@ -211,6 +211,20 @@ func TestWSServerCloseDrainsQueuedPoolTasks(t *testing.T) {
 	}
 }
 
+func TestWSServerCloseIgnoresAlreadyClosedListener(t *testing.T) {
+	server, err := CreateWSServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("CreateWSServer() error = %v", err)
+	}
+	if err := server.listener.Close(); err != nil {
+		t.Fatalf("listener.Close() error = %v", err)
+	}
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("Close() error = %v, want nil for normal closed listener", err)
+	}
+}
+
 func TestWSConnCloseClearsHeartbeat(t *testing.T) {
 	conn := newWSConn(nil)
 	conn.PingPongMap.Store(uint64(1), 1)

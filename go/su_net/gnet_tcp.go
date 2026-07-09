@@ -77,14 +77,11 @@ type GTcpServer struct {
 	Stat                    int32           /// 服务状态 0 停止 1 初始化 2 启动
 	Addr                    string          ////监听地址
 	protoAddr               string
-	async                   bool // 是否异步处理
-	multicore               bool
 	dispatchMode            GNetDispatchMode
 	closeOnce               sync.Once
 	connMap                 sync.Map /////ip - 连接映射
 	regHandlerMap           sync.Map /////注册处理映射
 	rawHandler              GNetRawHandler
-	closeErr                error
 	closeTimeout            time.Duration
 }
 
@@ -111,7 +108,7 @@ func (ts *GTcpServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()),
 		zap.Error(err))
 	if gconn, ok := c.Context().(*GNetConn); ok {
-		gconn.ClearHeartbeat()
+		gconn.markClosed()
 	}
 	ts.connMap.Delete(c.RemoteAddr().String())
 	return
@@ -245,7 +242,6 @@ func (ts *GTcpServer) Close() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		if err := gnet.Stop(ctx, ts.protoAddr); err != nil {
-			ts.closeErr = err
 			slog.Error("gnet server stop failed", zap.String("addr", ts.protoAddr), zap.Error(err))
 		}
 		cancel()
@@ -296,7 +292,7 @@ func (ts *GTcpServer) Run() {
 }
 
 func CreateGNetServer(a_addr string) *GTcpServer {
-	ts := &GTcpServer{async: true, multicore: true, dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT}
+	ts := &GTcpServer{dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT}
 	ts.pool = my_util.NewGoPool(16, 1024)
 	return ts
 }
@@ -387,7 +383,7 @@ func (tc *GTcpClient) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	}
 	tc.connMu.Unlock()
 	if closedConn != nil {
-		closedConn.ClearHeartbeat()
+		closedConn.markClosed()
 	}
 	if tc.ConnCount() == 0 {
 		tc.clearPendingRequests()
@@ -509,7 +505,7 @@ func (tc *GTcpClient) handleClientPacket(gconn *GNetConn, dp *DataProtocol) {
 		slog.Error("proto.Unmarshal 失败", zap.Error(err))
 		return
 	}
-	rq := handleST.RQ
+	rq := newProtoFromType(handleST.RQType)
 	if tc.pendingRequestsEnabled() {
 		if pendingRQ, ok := tc.pendingRQMap.LoadAndDelete(dp.Head.RouteId); ok {
 			switch pending := pendingRQ.(type) {
@@ -686,8 +682,8 @@ func (tc *GTcpClient) Stop() (err error) {
 		if tc.Client != nil {
 			tc.stopErr = tc.Client.Stop()
 		}
-		if tc.pool != nil {
-			tc.pool.Stop()
+		if tc.pool != nil && !tc.pool.StopAndDrain(DEFAULT_CLOSE_TIMEOUT) {
+			slog.Warn("gnet client pool drain timeout")
 		}
 		slog.Info("client stop ", zap.Error(tc.stopErr)) /////关闭客户端
 	})
@@ -717,6 +713,7 @@ func (tc *GTcpClient) Connect() error {
 	atomic.StoreInt32(&tc.state, 1)
 	conn, err := tc.Client.Dial("tcp", tc.remote_addr)
 	if err != nil {
+		atomic.CompareAndSwapInt32(&tc.state, 1, 2)
 		slog.Error("client dial failed", zap.String("addr: ", tc.remote_addr), zap.Error(err))
 		return err
 	}

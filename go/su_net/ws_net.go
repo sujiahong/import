@@ -321,6 +321,9 @@ func (ws *WSServer) Close() error {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			err = ws.server.Shutdown(ctx)
 			cancel()
+			if errors.Is(err, net.ErrClosed) {
+				err = nil
+			}
 		}
 		conns := make([]*WSConn, 0)
 		ws.connsMu.Lock()

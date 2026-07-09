@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/panjf2000/gnet/v2"
+	"go.local/my_util"
 	testpb "go.local/proto/Test"
 )
 
@@ -219,6 +221,40 @@ func TestGNetClientDisablePendingClearsRequests(t *testing.T) {
 	}
 }
 
+func TestGNetClientHandlePacketUsesFreshRequestWhenPendingDisabled(t *testing.T) {
+	client := &GTcpClient{pendingEnabled: 0}
+	template := &testpb.TestRQ{}
+	var seen []uint32
+	client.RegisterHandler(10000, template, 10001, &testpb.TestRS{}, func(gnc *GNetConn, shardingID uint64, rqMsg proto.Message, rsMsg proto.Message) {
+		rq := rqMsg.(*testpb.TestRQ)
+		seen = append(seen, rq.GetTest1())
+		rq.Test1 = proto.Uint32(99)
+	})
+	rsBytes, err := proto.Marshal(&testpb.TestRS{Test1: proto.Uint32(1)})
+	if err != nil {
+		t.Fatalf("proto.Marshal() error = %v", err)
+	}
+
+	client.handleClientPacket(NewGnetConn(nil), &DataProtocol{
+		Head: Header{PackId: 10001, RouteId: 1},
+		Data: rsBytes,
+	})
+	client.handleClientPacket(NewGnetConn(nil), &DataProtocol{
+		Head: Header{PackId: 10001, RouteId: 2},
+		Data: rsBytes,
+	})
+
+	if len(seen) != 2 {
+		t.Fatalf("handler calls = %d, want 2", len(seen))
+	}
+	if seen[0] != 0 || seen[1] != 0 {
+		t.Fatalf("request values = %v, want fresh zero-value requests", seen)
+	}
+	if template.GetTest1() != 0 {
+		t.Fatalf("template request was mutated: %d", template.GetTest1())
+	}
+}
+
 func TestGNetPongDecrementsPendingPingCount(t *testing.T) {
 	conn := NewGnetConn(nil)
 	conn.PingPongMap.Store(uint64(7), 1)
@@ -236,6 +272,78 @@ func TestGNetPongDecrementsPendingPingCount(t *testing.T) {
 	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
 		t.Fatalf("pendingPings = %d, want 0", got)
 	}
+}
+
+func TestGNetConnCheckPongAfterCloseDoesNotPing(t *testing.T) {
+	conn := NewGnetConn(nil)
+	conn.PingPongMap.Store(uint64(1), 1)
+	atomic.StoreInt32(&conn.pendingPings, 1)
+
+	conn.Close()
+	conn.CheckPong()
+
+	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
+		t.Fatalf("pendingPings = %d, want 0", got)
+	}
+	if err := conn.Send([]byte("x")); err == nil {
+		t.Fatal("Send() error = nil, want closed error")
+	}
+}
+
+func TestGNetConnMarkClosedPreventsPing(t *testing.T) {
+	conn := NewGnetConn(nil)
+	conn.PingPongMap.Store(uint64(1), 1)
+	atomic.StoreInt32(&conn.pendingPings, 1)
+
+	conn.markClosed()
+	conn.CheckPong()
+
+	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
+		t.Fatalf("pendingPings = %d, want 0", got)
+	}
+	if err := conn.Send([]byte("x")); err == nil {
+		t.Fatal("Send() error = nil, want closed error")
+	}
+}
+
+func TestGNetConnCloseIsConcurrentSafe(t *testing.T) {
+	port := freeTCPPort(t)
+	server := CreateGNetRawServer(port, func(gnc *GNetConn, dp *DataProtocol) {})
+	go server.Run()
+	defer server.Close()
+	waitForState(t, "server", &server.Stat, 2)
+
+	client := CreateGNetRawClient("127.0.0.1:"+port, 1, func(gnc *GNetConn, dp *DataProtocol) {})
+	if client == nil {
+		t.Fatal("CreateGNetRawClient() returned nil")
+	}
+	defer client.Stop()
+	waitForState(t, "client", &client.state, 2)
+
+	var target *GNetConn
+	waitForCondition(t, "client conn", 3*time.Second, func() bool {
+		client.connMu.RLock()
+		defer client.connMu.RUnlock()
+		if len(client.connList) == 0 {
+			return false
+		}
+		target = client.connList[0]
+		return true
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			target.Close()
+		}()
+	}
+	wg.Wait()
+
+	waitForCondition(t, "client conn closed", 3*time.Second, func() bool {
+		return client.ConnCount() == 0
+	})
 }
 
 func TestGNetClientRemoteCloseClearsPendingRequests(t *testing.T) {
@@ -313,6 +421,48 @@ func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
 	})
 	if got := atomic.LoadInt32(&client.reconnectState); got != 0 {
 		t.Fatalf("reconnectState = %d, want 0 after Stop", got)
+	}
+}
+
+func TestGNetClientStopDrainsQueuedPoolTasks(t *testing.T) {
+	client := &GTcpClient{state: 2, pool: my_util.NewGoPool(1, 16)}
+	const tasks = 8
+	var ran int32
+	for i := 0; i < tasks; i++ {
+		if !client.pool.SendTask(uint64(i), func() {
+			time.Sleep(5 * time.Millisecond)
+			atomic.AddInt32(&ran, 1)
+		}) {
+			t.Fatalf("SendTask(%d) failed", i)
+		}
+	}
+
+	if err := client.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if got := atomic.LoadInt32(&ran); got != tasks {
+		t.Fatalf("ran tasks = %d, want %d", got, tasks)
+	}
+}
+
+func TestGNetClientConnectFailureRestoresConnectedState(t *testing.T) {
+	port := freeTCPPort(t)
+	client := &GTcpClient{remote_addr: "127.0.0.1:" + port, state: 2}
+	gclient, err := gnet.NewClient(client)
+	if err != nil {
+		t.Fatalf("gnet.NewClient() error = %v", err)
+	}
+	if err := gclient.Start(); err != nil {
+		t.Fatalf("gnet client Start() error = %v", err)
+	}
+	client.Client = gclient
+	defer client.Stop()
+
+	if err := client.Connect(); err == nil {
+		t.Fatal("Connect() error = nil, want dial failure")
+	}
+	if got := client.State(); got != 2 {
+		t.Fatalf("client state = %d, want 2 after dial failure", got)
 	}
 }
 

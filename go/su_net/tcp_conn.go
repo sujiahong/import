@@ -17,8 +17,10 @@ type GNetConn struct {
 	Gconn        gnet.Conn
 	RemoteAddr   string
 	LocalAddr    string
+	closed       int32
 	recvData     []byte ////网络数据缓存
-	checkTimes   int32  /// 检测心跳次数
+	closeOnce    sync.Once
+	checkTimes   int32 /// 检测心跳次数
 	pendingPings int32
 	PingPongMap  sync.Map /////注册处理映射
 }
@@ -38,6 +40,9 @@ func NewGnetConn(c gnet.Conn) *GNetConn {
 func (gnc *GNetConn) Send(a_data []byte) error {
 	if gnc == nil || gnc.Gconn == nil {
 		return errors.New("gnet conn is nil")
+	}
+	if atomic.LoadInt32(&gnc.closed) == 1 {
+		return errors.New("gnet conn is closed")
 	}
 	if err := gnc.Gconn.AsyncWrite(a_data, nil); err != nil {
 		slog.Error("gnet async write failed", zap.Error(err))
@@ -113,6 +118,9 @@ func (gnc *GNetConn) Ping() error {
 }
 
 func (gnc *GNetConn) CheckPong() {
+	if gnc == nil || atomic.LoadInt32(&gnc.closed) == 1 {
+		return
+	}
 	count := atomic.LoadInt32(&gnc.pendingPings)
 	var checkTimes int32
 	if count == 0 {
@@ -136,11 +144,22 @@ func (gnc *GNetConn) Close() {
 	if gnc == nil {
 		return
 	}
-	gnc.ClearHeartbeat()
-	if gnc.Gconn == nil {
+	gnc.closeOnce.Do(func() {
+		atomic.StoreInt32(&gnc.closed, 1)
+		gnc.ClearHeartbeat()
+		if gnc.Gconn == nil {
+			return
+		}
+		gnc.Gconn.Close()
+	})
+}
+
+func (gnc *GNetConn) markClosed() {
+	if gnc == nil {
 		return
 	}
-	gnc.Gconn.Close()
+	atomic.StoreInt32(&gnc.closed, 1)
+	gnc.ClearHeartbeat()
 }
 
 func (gnc *GNetConn) ClearHeartbeat() {
