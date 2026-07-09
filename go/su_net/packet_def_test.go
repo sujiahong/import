@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"testing"
+
+	"go.local/su_errors"
 )
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
@@ -39,6 +41,15 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 	if string(got.Data) != string(dp.Data) {
 		t.Fatalf("data = %q, want %q", got.Data, dp.Data)
+	}
+}
+
+func TestPacketErrorsAliasSuErrors(t *testing.T) {
+	if !errors.Is(ErrIncompletePacket, su_errors.ErrIncompletePacket) {
+		t.Fatal("ErrIncompletePacket should alias su_errors.ErrIncompletePacket")
+	}
+	if !errors.Is(ErrInvalidPacket, su_errors.ErrInvalidPacket) {
+		t.Fatal("ErrInvalidPacket should alias su_errors.ErrInvalidPacket")
 	}
 }
 

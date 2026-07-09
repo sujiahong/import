@@ -262,7 +262,15 @@ func (kp *KafkaProducer) handleError() {
 		}
 	}
 }
-
+/* msg *sarama.ConsumerMessage
+msg.Topic       // topic 名
+msg.Partition   // 分区 id
+msg.Offset      // 当前消息 offset
+msg.Key         // 消息 key，[]byte
+msg.Value       // 消息内容，[]byte
+msg.Headers     // Kafka headers
+msg.Timestamp   // 消息时间
+*/
 type HandleFunc func(a_partion_id int32, msg *sarama.ConsumerMessage)
 type HandleMessageFunc func(ctx context.Context, msg *sarama.ConsumerMessage) error
 

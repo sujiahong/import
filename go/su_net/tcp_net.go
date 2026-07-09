@@ -2,7 +2,7 @@ package su_net
 
 import (
 	"errors"
-	"fmt"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.local/su_util"
 	"io"
@@ -58,20 +58,20 @@ func (tc *TcpConn) Send(dp *DataProtocol) error {
 
 func (tc *TcpConn) SendBytes(bs []byte) error {
 	if tc == nil {
-		return errors.New("tcp conn is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "tcp conn is nil")
 	}
 	tc.writeMu.Lock()
 	defer tc.writeMu.Unlock()
 	if atomic.LoadInt32(&tc.closed) == 1 || tc.conn == nil {
-		return errors.New("tcp conn is closed")
+		return su_errors.New(su_errors.CodeUnavailable, "tcp conn is closed")
 	}
 	for len(bs) > 0 {
 		n, err := tc.conn.Write(bs)
 		if err != nil {
-			return err
+			return su_errors.WrapRetryable(su_errors.CodeUnavailable, "tcp write failed", err)
 		}
 		if n == 0 {
-			return io.ErrShortWrite
+			return su_errors.WrapRetryable(su_errors.CodeUnavailable, "tcp short write", io.ErrShortWrite)
 		}
 		bs = bs[n:]
 	}
@@ -258,11 +258,11 @@ type TcpServer struct {
 func CreateTcpServer(addr string, handlers ...TcpHandler) (*TcpServer, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.Wrap(su_errors.CodeInvalidArgument, "resolve tcp addr failed", err)
 	}
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "listen tcp failed", err)
 	}
 	server := &TcpServer{
 		Addr:     listener.Addr().String(),
@@ -357,11 +357,11 @@ type TcpClient struct {
 func CreateTcpClient(addr string, handlers ...TcpHandler) (*TcpClient, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.Wrap(su_errors.CodeInvalidArgument, "resolve tcp addr failed", err)
 	}
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "dial tcp failed", err)
 	}
 	client := &TcpClient{
 		Addr: addr,
@@ -400,7 +400,7 @@ func (tc *TcpClient) heartbeatLoop() {
 
 func (tc *TcpClient) Send(dp *DataProtocol) error {
 	if tc == nil || tc.Conn == nil {
-		return fmt.Errorf("tcp client is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "tcp client is nil")
 	}
 	return tc.Conn.Send(dp)
 }

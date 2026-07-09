@@ -2,8 +2,8 @@ package su_net
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"sync"
 
@@ -30,8 +30,8 @@ const (
 )
 
 var (
-	ErrIncompletePacket = errors.New("incomplete packet")
-	ErrInvalidPacket    = errors.New("invalid packet")
+	ErrIncompletePacket = su_errors.ErrIncompletePacket
+	ErrInvalidPacket    = su_errors.ErrInvalidPacket
 )
 
 func deleteAllSyncMap(m *sync.Map) {
@@ -139,7 +139,7 @@ func PingDecode(a_data []byte, a_pack_len uint32) (ping Ping, err error) {
 	data_len := uint32(len(a_data))
 	if data_len != a_pack_len-HeadLength {
 		slog.Error("byte length < data length", zap.Uint32("data_len: ", data_len), zap.Uint32("a_pack_len - HeadLength", a_pack_len-HeadLength))
-		err = errors.New("byte length < data length")
+		err = fmt.Errorf("%w: byte length %d < data length %d", ErrInvalidPacket, data_len, a_pack_len-HeadLength)
 		return
 	}
 	if data_len != 8 {
@@ -168,7 +168,7 @@ func PongDecode(a_data []byte, a_pack_len uint32) (pong Pong, err error) {
 	data_len := uint32(len(a_data))
 	if data_len != a_pack_len-HeadLength {
 		slog.Error("byte length < data length", zap.Uint32("data_len: ", data_len), zap.Uint32("a_pack_len - HeadLength", a_pack_len-HeadLength))
-		err = errors.New("byte length < data length")
+		err = fmt.Errorf("%w: byte length %d < data length %d", ErrInvalidPacket, data_len, a_pack_len-HeadLength)
 		return
 	}
 	if data_len != 16 {

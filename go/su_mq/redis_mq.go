@@ -31,6 +31,10 @@ type RedisListConsumerConfig struct {
 	RetryInterval    time.Duration
 	BackpressureMode RedisBackpressureMode
 	LogMessages      bool
+	RetryPolicy      RetryPolicy
+	DeadLetter       DeadLetter
+	Idempotency      Idempotency
+	Metrics          MQMetrics
 }
 
 type RedisListMessage struct {
@@ -46,9 +50,10 @@ type redisDoCloser interface {
 }
 
 type RedisListConsumer struct {
-	cfg     RedisListConsumerConfig
-	client  redisDoCloser
-	handler RedisListHandler
+	cfg       RedisListConsumerConfig
+	client    redisDoCloser
+	handler   RedisListHandler
+	processor *Processor
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -94,11 +99,12 @@ func NewRedisListConsumerWithClient(cfg RedisListConsumerConfig, client redisDoC
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RedisListConsumer{
-		cfg:     cfg,
-		client:  client,
-		handler: handler,
-		ctx:     ctx,
-		cancel:  cancel,
+		cfg:       cfg,
+		client:    client,
+		handler:   handler,
+		processor: NewProcessor(processorOptionsFromRedisConfig(cfg)),
+		ctx:       ctx,
+		cancel:    cancel,
 	}, nil
 }
 
@@ -199,7 +205,16 @@ func (rc *RedisListConsumer) readLoop(index int) {
 func (rc *RedisListConsumer) runWorker(index int) {
 	defer rc.workerWg.Done()
 	for msg := range rc.jobs {
-		if err := rc.handler(rc.ctx, msg); err != nil {
+		mqMsg := Message{
+			Source: "redis",
+			Topic:  msg.ListKey,
+			Value:  append([]byte(nil), msg.Value...),
+			Raw:    msg,
+		}
+		err := rc.processor.Process(rc.ctx, mqMsg, func(ctx context.Context, message Message) error {
+			return rc.handler(ctx, msg)
+		})
+		if err != nil {
 			slog.Error("redis list handler failed", zap.Error(err), zap.Int("worker", index), zap.String("list", msg.ListKey))
 		}
 	}
@@ -303,4 +318,13 @@ func defaultRedisListConsumerConfig(cfg RedisListConsumerConfig) RedisListConsum
 		cfg.RetryInterval = time.Second
 	}
 	return cfg
+}
+
+func processorOptionsFromRedisConfig(cfg RedisListConsumerConfig) ProcessorOptions {
+	return ProcessorOptions{
+		RetryPolicy: cfg.RetryPolicy,
+		DeadLetter:  cfg.DeadLetter,
+		Idempotency: cfg.Idempotency,
+		Metrics:     cfg.Metrics,
+	}
 }

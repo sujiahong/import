@@ -2,6 +2,7 @@ package su_net
 
 import (
 	"errors"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"sync"
 	"sync/atomic"
@@ -39,21 +40,21 @@ func NewGnetConn(c gnet.Conn) *GNetConn {
 
 func (gnc *GNetConn) Send(a_data []byte) error {
 	if gnc == nil || gnc.Gconn == nil {
-		return errors.New("gnet conn is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet conn is nil")
 	}
 	if atomic.LoadInt32(&gnc.closed) == 1 {
-		return errors.New("gnet conn is closed")
+		return su_errors.New(su_errors.CodeUnavailable, "gnet conn is closed")
 	}
 	if err := gnc.Gconn.AsyncWrite(a_data, nil); err != nil {
 		slog.Error("gnet async write failed", zap.Error(err))
-		return err
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "gnet async write failed", err)
 	}
 	return nil
 }
 
 func (gnc *GNetConn) SendPacket(dp *DataProtocol) error {
 	if dp == nil {
-		return errors.New("nil data protocol")
+		return su_errors.New(su_errors.CodeInvalidArgument, "nil data protocol")
 	}
 	bs, err := Encode(dp)
 	if err != nil {

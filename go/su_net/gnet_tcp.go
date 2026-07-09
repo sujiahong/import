@@ -2,8 +2,8 @@ package su_net
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.local/su_util"
 	"reflect"
@@ -50,15 +50,15 @@ type pendingGNetRequest struct {
 
 func newProtoType(template proto.Message) (reflect.Type, error) {
 	if template == nil {
-		return nil, fmt.Errorf("nil proto template")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "nil proto template")
 	}
 	t := reflect.TypeOf(template)
 	if t.Kind() != reflect.Ptr {
-		return nil, fmt.Errorf("proto template must be pointer, got %s", t.Kind())
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, fmt.Sprintf("proto template must be pointer, got %s", t.Kind()))
 	}
 	elem := t.Elem()
 	if _, ok := reflect.New(elem).Interface().(proto.Message); !ok {
-		return nil, fmt.Errorf("%s does not implement proto.Message", t.String())
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, fmt.Sprintf("%s does not implement proto.Message", t.String()))
 	}
 	return elem, nil
 }
@@ -524,7 +524,7 @@ func (tc *GTcpClient) send(a_bytes []byte) (err error) {
 	connCount := len(tc.connList)
 	if connCount == 0 {
 		tc.connMu.RUnlock()
-		return fmt.Errorf("no active tcp client connection")
+		return su_errors.NewRetryable(su_errors.CodeUnavailable, "no active tcp client connection")
 	}
 	target := int(atomic.AddUint64(&tc.sendSeq, 1)-1) % connCount
 	gconn := tc.connList[target]
@@ -572,7 +572,7 @@ func (tc *GTcpClient) sendProto(a_rq_id, a_rs_id uint32, a_msg proto.Message, tr
 		}
 		return nil
 	} else {
-		err := fmt.Errorf("unregistered response packet id %d", a_rs_id)
+		err := su_errors.New(su_errors.CodeNotFound, fmt.Sprintf("unregistered response packet id %d", a_rs_id))
 		slog.Error("发包未识别的包ID", zap.Uint32("packid", a_rs_id))
 		return err
 	}
@@ -580,7 +580,7 @@ func (tc *GTcpClient) sendProto(a_rq_id, a_rs_id uint32, a_msg proto.Message, tr
 
 func (tc *GTcpClient) SendPacket(dp *DataProtocol) error {
 	if dp == nil {
-		return fmt.Errorf("nil data protocol")
+		return su_errors.New(su_errors.CodeInvalidArgument, "nil data protocol")
 	}
 	bs, err := Encode(dp)
 	if err != nil {
@@ -708,14 +708,14 @@ func (tc *GTcpClient) ConnCount() int {
 
 func (tc *GTcpClient) Connect() error {
 	if atomic.LoadInt32(&tc.state) == 0 {
-		return errors.New("client stopped")
+		return su_errors.New(su_errors.CodeUnavailable, "client stopped")
 	}
 	atomic.StoreInt32(&tc.state, 1)
 	conn, err := tc.Client.Dial("tcp", tc.remote_addr)
 	if err != nil {
 		atomic.CompareAndSwapInt32(&tc.state, 1, 2)
 		slog.Error("client dial failed", zap.String("addr: ", tc.remote_addr), zap.Error(err))
-		return err
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "client dial failed", err)
 	}
 	slog.Info("client connect", zap.String("remote addr:", conn.RemoteAddr().String()),
 		zap.String("local addr:", conn.LocalAddr().String()))

@@ -101,6 +101,83 @@ func TestRedisListConsumerConcurrentClose(t *testing.T) {
 	wg.Wait()
 }
 
+func TestRedisListConsumerRetryThenSuccess(t *testing.T) {
+	client := newFakeRedisClient()
+	var calls atomic.Int32
+	done := make(chan struct{})
+	consumer, err := NewRedisListConsumerWithClient(RedisListConsumerConfig{
+		ListKey:      "jobs",
+		ReaderNum:    1,
+		WorkerNum:    1,
+		QueueSize:    1,
+		PopTimeout:   time.Second,
+		CloseTimeout: time.Second,
+		RetryPolicy:  FixedRetry{MaxAttempts: 1},
+	}, client, func(ctx context.Context, msg RedisListMessage) error {
+		if calls.Add(1) == 1 {
+			return errors.New("temporary")
+		}
+		close(done)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("new consumer failed: %v", err)
+	}
+	if err := consumer.Start(); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	client.push([]interface{}{[]byte("jobs"), []byte("a")})
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("message was not retried")
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("calls = %d, want 2", got)
+	}
+}
+
+func TestRedisListConsumerDeadLetterAfterFailure(t *testing.T) {
+	client := newFakeRedisClient()
+	dlq := NewMemoryDeadLetter()
+	consumer, err := NewRedisListConsumerWithClient(RedisListConsumerConfig{
+		ListKey:      "jobs",
+		ReaderNum:    1,
+		WorkerNum:    1,
+		QueueSize:    1,
+		PopTimeout:   time.Second,
+		CloseTimeout: time.Second,
+		DeadLetter:   dlq,
+	}, client, func(ctx context.Context, msg RedisListMessage) error {
+		return errors.New("failed")
+	})
+	if err != nil {
+		t.Fatalf("new consumer failed: %v", err)
+	}
+	if err := consumer.Start(); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	client.push([]interface{}{[]byte("jobs"), []byte("a")})
+	deadline := time.After(time.Second)
+	for {
+		if len(dlq.Messages()) == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for dead letter")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+}
+
 func TestRedisListConsumerNilSafe(t *testing.T) {
 	var consumer *RedisListConsumer
 	if err := consumer.Start(); err == nil {

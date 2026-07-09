@@ -51,3 +51,25 @@ func TestKafkaPartitionHandlerIncludesMessage(t *testing.T) {
 
 	handler(1, &sarama.ConsumerMessage{Value: []byte("payload")})
 }
+
+func TestKafkaMessageToMessage(t *testing.T) {
+	msg := kafkaMessageToMessage("fallback", &sarama.ConsumerMessage{
+		Topic:     "topic",
+		Key:       []byte("key"),
+		Value:     []byte("value"),
+		Partition: 2,
+		Offset:    3,
+		Headers: []*sarama.RecordHeader{
+			{Key: []byte("trace_id"), Value: []byte("t1")},
+		},
+	})
+	if msg.Source != "kafka" || msg.Topic != "topic" || string(msg.Key) != "key" || string(msg.Value) != "value" {
+		t.Fatalf("unexpected message: %+v", msg)
+	}
+	if msg.Partition != 2 || msg.Offset != 3 {
+		t.Fatalf("partition/offset = %d/%d, want 2/3", msg.Partition, msg.Offset)
+	}
+	if msg.Headers["trace_id"] != "t1" {
+		t.Fatalf("header trace_id = %q, want t1", msg.Headers["trace_id"])
+	}
+}

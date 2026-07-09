@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.local/su_util"
 	"net"
@@ -49,14 +50,17 @@ func (wc *WSConn) Send(dp *DataProtocol) error {
 
 func (wc *WSConn) SendBytes(bs []byte) error {
 	if wc == nil {
-		return errors.New("websocket conn is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "websocket conn is nil")
 	}
 	wc.writeMu.Lock()
 	defer wc.writeMu.Unlock()
 	if atomic.LoadInt32(&wc.closed) == 1 || wc.conn == nil {
-		return errors.New("websocket conn is closed")
+		return su_errors.New(su_errors.CodeUnavailable, "websocket conn is closed")
 	}
-	return wc.conn.WriteMessage(websocket.BinaryMessage, bs)
+	if err := wc.conn.WriteMessage(websocket.BinaryMessage, bs); err != nil {
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "websocket write failed", err)
+	}
+	return nil
 }
 
 func (wc *WSConn) Close() error {
@@ -248,7 +252,7 @@ type WSServer struct {
 func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "listen websocket failed", err)
 	}
 	ws := &WSServer{
 		Addr:     listener.Addr().String(),
@@ -362,7 +366,7 @@ func CreateWSClient(addr string, handlers ...WSHandler) (*WSClient, error) {
 	url := normalizeWSURL(addr)
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "dial websocket failed", err)
 	}
 	client := &WSClient{
 		Addr: url,
@@ -408,7 +412,7 @@ func (wc *WSClient) stopHeartbeat() {
 
 func (wc *WSClient) Send(dp *DataProtocol) error {
 	if wc == nil || wc.Conn == nil {
-		return fmt.Errorf("websocket client is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "websocket client is nil")
 	}
 	return wc.Conn.Send(dp)
 }
