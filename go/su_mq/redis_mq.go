@@ -2,13 +2,13 @@ package su_mq
 
 import (
 	"context"
-	"errors"
 	"runtime"
 	"sync"
 	"time"
 
 	"github.com/garyburd/redigo/redis"
 	sredis "go.local/su_da/redis"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.uber.org/zap"
 )
@@ -69,14 +69,14 @@ type RedisListConsumer struct {
 func NewRedisListConsumer(cfg RedisListConsumerConfig, handler RedisListHandler) (*RedisListConsumer, error) {
 	cfg = defaultRedisListConsumerConfig(cfg)
 	if cfg.RedisConfig.RemoteAddr == "" {
-		return nil, errors.New("redis remote addr is empty")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "redis remote addr is empty")
 	}
 	client, err := sredis.NewRedisClientWithConfig(cfg.RedisConfig)
 	if err != nil {
-		return nil, err
+		return nil, su_errors.Wrap(su_errors.CodeInvalidArgument, "create redis client failed", err)
 	}
 	if err := client.Connect(); err != nil {
-		return nil, err
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "connect redis failed", err)
 	}
 	return NewRedisListConsumerWithClient(cfg, client, handler)
 }
@@ -84,13 +84,13 @@ func NewRedisListConsumer(cfg RedisListConsumerConfig, handler RedisListHandler)
 func NewRedisListConsumerWithClient(cfg RedisListConsumerConfig, client redisDoCloser, handler RedisListHandler) (*RedisListConsumer, error) {
 	cfg = defaultRedisListConsumerConfig(cfg)
 	if cfg.ListKey == "" {
-		return nil, errors.New("redis list key is empty")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "redis list key is empty")
 	}
 	if client == nil {
-		return nil, errors.New("redis client is nil")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "redis client is nil")
 	}
 	if handler == nil {
-		return nil, errors.New("redis list handler is nil")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "redis list handler is nil")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RedisListConsumer{
@@ -104,16 +104,16 @@ func NewRedisListConsumerWithClient(cfg RedisListConsumerConfig, client redisDoC
 
 func (rc *RedisListConsumer) Start() error {
 	if rc == nil {
-		return errors.New("redis list consumer is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "redis list consumer is nil")
 	}
 	rc.mu.Lock()
 	if rc.closed {
 		rc.mu.Unlock()
-		return errors.New("redis list consumer is closed")
+		return su_errors.New(su_errors.CodeInternal, "redis list consumer is closed")
 	}
 	if rc.started {
 		rc.mu.Unlock()
-		return errors.New("redis list consumer already started")
+		return su_errors.New(su_errors.CodeInternal, "redis list consumer already started")
 	}
 	rc.started = true
 	rc.jobs = make(chan RedisListMessage, rc.cfg.QueueSize)
@@ -267,7 +267,7 @@ func parseRedisListMessage(reply interface{}) (RedisListMessage, error) {
 		return RedisListMessage{}, err
 	}
 	if len(values) != 2 {
-		return RedisListMessage{}, errors.New("redis list reply length is invalid")
+		return RedisListMessage{}, su_errors.New(su_errors.CodeInvalidArgument, "redis list reply length is invalid")
 	}
 	listKey, err := redis.String(values[0], nil)
 	if err != nil {

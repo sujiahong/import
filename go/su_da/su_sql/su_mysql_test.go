@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"go.local/su_errors"
 )
 
 func TestMysqlOperationsBeforeConnectReturnError(t *testing.T) {
@@ -18,6 +19,8 @@ func TestMysqlOperationsBeforeConnectReturnError(t *testing.T) {
 
 	if err := mc.Insert("insert into t(a) values(?)", 1); err == nil {
 		t.Fatal("expected insert error before mysql connect")
+	} else if su_errors.CodeOf(err) != su_errors.CodeUnavailable {
+		t.Fatalf("error code = %d, want unavailable", su_errors.CodeOf(err))
 	}
 	if err := mc.Update("update t set a=?", 1); err == nil {
 		t.Fatal("expected update error before mysql connect")
@@ -50,6 +53,8 @@ func TestNewMysqlClientIncompleteConfigDoesNotReturnNil(t *testing.T) {
 	}
 	if err := mc.Connect(); err == nil {
 		t.Fatal("expected connect error for incomplete mysql config")
+	} else if su_errors.CodeOf(err) != su_errors.CodeUnavailable {
+		t.Fatalf("error code = %d, want unavailable", su_errors.CodeOf(err))
 	}
 }
 

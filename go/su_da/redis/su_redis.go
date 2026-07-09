@@ -1,11 +1,11 @@
 package su_redis
 
 import (
-	"errors"
 	"sync"
 	"time"
 
 	"github.com/garyburd/redigo/redis"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.uber.org/zap"
 )
@@ -46,7 +46,7 @@ func NewRedisClient(redis_addr string, conn_num int) *RedisClient {
 func NewRedisClientWithConfig(cfg RedisConfig) (*RedisClient, error) {
 	cfg = defaultRedisConfig(cfg)
 	if cfg.RemoteAddr == "" {
-		return nil, errors.New("redis remote addr is empty")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "redis remote addr is empty")
 	}
 	return &RedisClient{
 		RemoteAddr: cfg.RemoteAddr,
@@ -57,14 +57,14 @@ func NewRedisClientWithConfig(cfg RedisConfig) (*RedisClient, error) {
 
 func (rc *RedisClient) Connect() error {
 	if rc == nil {
-		return errors.New("redis client is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "redis client is nil")
 	}
 	cfg := defaultRedisConfig(rc.cfg)
 	if cfg.RemoteAddr == "" {
 		cfg.RemoteAddr = rc.RemoteAddr
 	}
 	if cfg.RemoteAddr == "" {
-		return errors.New("redis remote addr is empty")
+		return su_errors.New(su_errors.CodeInvalidArgument, "redis remote addr is empty")
 	}
 	pool := &redis.Pool{
 		MaxIdle:     cfg.MaxIdle,
@@ -139,20 +139,24 @@ func (rc *RedisClient) Close() error {
 
 func (rc *RedisClient) Do(cmd string, args ...interface{}) (interface{}, error) {
 	if rc == nil {
-		return nil, errors.New("redis client is not connected")
+		return nil, su_errors.New(su_errors.CodeUnavailable, "redis client is not connected")
 	}
 	rc.mu.RLock()
 	pool := rc.pool
 	rc.mu.RUnlock()
 	if pool == nil {
-		return nil, errors.New("redis client is not connected")
+		return nil, su_errors.New(su_errors.CodeUnavailable, "redis client is not connected")
 	}
 	c := pool.Get()
 	defer c.Close()
 	if err := c.Err(); err != nil {
-		return nil, err
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "redis connection error", err)
 	}
-	return c.Do(cmd, args...)
+	reply, err := c.Do(cmd, args...)
+	if err != nil {
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "redis command failed", err)
+	}
+	return reply, nil
 }
 
 func defaultRedisConfig(cfg RedisConfig) RedisConfig {

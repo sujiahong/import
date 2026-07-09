@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/garyburd/redigo/redis"
+	"go.local/su_errors"
 )
 
 func TestRedisDoBeforeConnectReturnsError(t *testing.T) {
@@ -13,6 +14,8 @@ func TestRedisDoBeforeConnectReturnsError(t *testing.T) {
 
 	if _, err := rc.Do("PING"); err == nil {
 		t.Fatal("expected error before redis connect")
+	} else if su_errors.CodeOf(err) != su_errors.CodeUnavailable {
+		t.Fatalf("error code = %d, want unavailable", su_errors.CodeOf(err))
 	}
 }
 
@@ -23,6 +26,8 @@ func TestNewRedisClientEmptyAddrDoesNotReturnNil(t *testing.T) {
 	}
 	if err := rc.Connect(); err == nil {
 		t.Fatal("expected connect error for empty redis addr")
+	} else if su_errors.CodeOf(err) != su_errors.CodeInvalidArgument {
+		t.Fatalf("error code = %d, want invalid argument", su_errors.CodeOf(err))
 	}
 }
 

@@ -5,17 +5,24 @@ import (
 	"testing"
 
 	"github.com/IBM/sarama"
+	"go.local/su_errors"
 )
 
 func TestNewKafkaConsumerValidatesConfig(t *testing.T) {
 	if _, err := NewKafkaConsumer(KafkaConsumerConfig{}, func(ctx context.Context, msg *sarama.ConsumerMessage) error { return nil }); err == nil {
 		t.Fatal("expected empty addr error")
+	} else if su_errors.CodeOf(err) != su_errors.CodeInvalidArgument {
+		t.Fatalf("error code = %d, want invalid argument", su_errors.CodeOf(err))
 	}
 	if _, err := NewKafkaConsumer(KafkaConsumerConfig{AddrSlice: []string{"127.0.0.1:9092"}}, func(ctx context.Context, msg *sarama.ConsumerMessage) error { return nil }); err == nil {
 		t.Fatal("expected empty topic error")
+	} else if su_errors.CodeOf(err) != su_errors.CodeInvalidArgument {
+		t.Fatalf("error code = %d, want invalid argument", su_errors.CodeOf(err))
 	}
 	if _, err := NewKafkaConsumer(KafkaConsumerConfig{AddrSlice: []string{"127.0.0.1:9092"}, Topic: "topic"}, nil); err == nil {
 		t.Fatal("expected nil handler error")
+	} else if su_errors.CodeOf(err) != su_errors.CodeInvalidArgument {
+		t.Fatalf("error code = %d, want invalid argument", su_errors.CodeOf(err))
 	}
 }
 
@@ -23,6 +30,8 @@ func TestKafkaConsumerNilSafe(t *testing.T) {
 	var kc *KafkaConsumer
 	if err := kc.StartAllPartitions(); err == nil {
 		t.Fatal("expected nil consumer start error")
+	} else if su_errors.CodeOf(err) != su_errors.CodeInvalidArgument {
+		t.Fatalf("error code = %d, want invalid argument", su_errors.CodeOf(err))
 	}
 	if err := kc.StartPartition(1); err == nil {
 		t.Fatal("expected nil consumer partition start error")

@@ -2,13 +2,13 @@ package su_kafka
 
 import (
 	"context"
-	"errors"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/IBM/sarama"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.local/su_util"
 	"go.uber.org/zap"
@@ -121,12 +121,12 @@ func (kp *KafkaProducer) SendWithKey(a_key, a_msg string) error {
 func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = errors.New("kafka producer send failed")
+			err = su_errors.NewRetryable(su_errors.CodeUnavailable, "kafka producer send failed")
 			slog.Error("kafka producer send panic", zap.Any("recover", r))
 		}
 	}()
 	if kp == nil {
-		return errors.New("kafka producer is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "kafka producer is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -138,16 +138,16 @@ func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (
 	}
 	if kp.Async {
 		if kp.asclient == nil {
-			return errors.New("kafka async producer is not connected")
+			return su_errors.New(su_errors.CodeUnavailable, "kafka async producer is not connected")
 		}
 		if kp.ctx == nil {
-			return errors.New("kafka producer context is nil")
+			return su_errors.New(su_errors.CodeInternal, "kafka producer context is nil")
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-kp.ctx.Done():
-			return errors.New("kafka producer is closed")
+			return su_errors.New(su_errors.CodeInternal, "kafka producer is closed")
 		case kp.asclient.Input() <- msg:
 			if kp.logMessages {
 				slog.Info("kafka async send", zap.Any("a_key", a_key))
@@ -156,7 +156,7 @@ func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (
 		}
 	}
 	if kp.client == nil {
-		return errors.New("kafka sync producer is not connected")
+		return su_errors.New(su_errors.CodeUnavailable, "kafka sync producer is not connected")
 	}
 	var producerDone <-chan struct{}
 	if kp.ctx != nil {
@@ -167,7 +167,7 @@ func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (
 	case <-ctxDone:
 		return ctx.Err()
 	case <-producerDone:
-		return errors.New("kafka producer is closed")
+		return su_errors.New(su_errors.CodeInternal, "kafka producer is closed")
 	default:
 	}
 
@@ -185,11 +185,11 @@ func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (
 	case <-ctxDone:
 		return ctx.Err()
 	case <-producerDone:
-		return errors.New("kafka producer is closed")
+		return su_errors.New(su_errors.CodeInternal, "kafka producer is closed")
 	case result := <-resultCh:
 		if result.err != nil {
 			slog.Error("kafka SendMessage failed", zap.Error(result.err))
-			return result.err
+			return su_errors.WrapRetryable(su_errors.CodeUnavailable, "kafka send message failed", result.err)
 		}
 		if kp.logMessages {
 			slog.Info("kafka sync send", zap.Any("pid", result.partition), zap.Any("offset", result.offset))
@@ -202,7 +202,7 @@ func (kp *KafkaProducer) sendSyncMessage(msg *sarama.ProducerMessage) error {
 	pid, offset, err := kp.client.SendMessage(msg)
 	if err != nil {
 		slog.Error("kafka SendMessage failed", zap.Error(err))
-		return err
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "kafka send message failed", err)
 	}
 	if kp.logMessages {
 		slog.Info("kafka sync send", zap.Any("pid", pid), zap.Any("offset", offset))

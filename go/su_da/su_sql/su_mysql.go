@@ -11,12 +11,12 @@ package su_mysql
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.uber.org/zap"
 	//"time"
@@ -71,7 +71,7 @@ func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns
 func NewMysqlClientWithConfig(cfg MysqlConfig) (*MysqlClient, error) {
 	cfg = defaultMysqlConfig(cfg)
 	if cfg.DSN == "" && (cfg.Uname == "" || cfg.Addr == "" || cfg.DbName == "") {
-		return nil, errors.New("mysql config is incomplete")
+		return nil, su_errors.New(su_errors.CodeInvalidArgument, "mysql config is incomplete")
 	}
 	return &MysqlClient{
 		Uname:      cfg.Uname,
@@ -86,7 +86,7 @@ func NewMysqlClientWithConfig(cfg MysqlConfig) (*MysqlClient, error) {
 
 func (mc *MysqlClient) Connect() error {
 	if mc == nil {
-		return errors.New("mysql client is nil")
+		return su_errors.New(su_errors.CodeInvalidArgument, "mysql client is nil")
 	}
 	cfg := defaultMysqlConfig(mc.cfg)
 	if cfg.DSN == "" {
@@ -98,7 +98,7 @@ func (mc *MysqlClient) Connect() error {
 	db, err := sqlx.Open("mysql", mysqlDSN(cfg))
 	if err != nil {
 		slog.Error("mysql 连接failed", zap.Error(err))
-		return err
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "mysql open failed", err)
 	}
 	db.SetMaxOpenConns(cfg.MaxOpenConns)
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
@@ -107,7 +107,7 @@ func (mc *MysqlClient) Connect() error {
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		slog.Error("mysql Ping failed", zap.Error(err))
-		return err
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "mysql ping failed", err)
 	}
 	mc.mu.Lock()
 	oldDB := mc.Db
@@ -130,7 +130,7 @@ func (mc *MysqlClient) Connect() error {
 
 func (mc *MysqlClient) dbLocked() (*sqlx.DB, error) {
 	if mc == nil || mc.Db == nil {
-		return nil, errors.New("mysql client is not connected")
+		return nil, su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
 	}
 	return mc.Db, nil
 }
@@ -217,7 +217,7 @@ func (mc *MysqlClient) ExecContext(ctx context.Context, a_cmd string, a_parm ...
 		ctx = context.Background()
 	}
 	if mc == nil {
-		return nil, errors.New("mysql client is not connected")
+		return nil, su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
 	}
 	db, err := mc.db()
 	if err != nil {
@@ -226,8 +226,9 @@ func (mc *MysqlClient) ExecContext(ctx context.Context, a_cmd string, a_parm ...
 	result, err = db.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql exec failed", zap.Error(err))
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "mysql exec failed", err)
 	}
-	return result, err
+	return result, nil
 }
 
 func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
@@ -235,7 +236,7 @@ func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_
 		ctx = context.Background()
 	}
 	if mc == nil {
-		return errors.New("mysql client is not connected")
+		return su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
 	}
 	db, err := mc.db()
 	if err != nil {
@@ -244,14 +245,14 @@ func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_
 	err = db.SelectContext(ctx, a_dest, a_cmd, a_parm...)
 	if err != nil {
 		slog.Error("mysql query failed", zap.Error(err))
-		return err
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "mysql query failed", err)
 	}
 	return nil
 }
 
 func (mc *MysqlClient) db() (*sqlx.DB, error) {
 	if mc == nil {
-		return nil, errors.New("mysql client is not connected")
+		return nil, su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
 	}
 	mc.mu.RLock()
 	db, err := mc.dbLocked()
