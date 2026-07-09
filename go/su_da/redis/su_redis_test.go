@@ -1,8 +1,11 @@
 package su_redis
 
 import (
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/garyburd/redigo/redis"
 )
 
 func TestRedisDoBeforeConnectReturnsError(t *testing.T) {
@@ -10,6 +13,16 @@ func TestRedisDoBeforeConnectReturnsError(t *testing.T) {
 
 	if _, err := rc.Do("PING"); err == nil {
 		t.Fatal("expected error before redis connect")
+	}
+}
+
+func TestNewRedisClientEmptyAddrDoesNotReturnNil(t *testing.T) {
+	rc := NewRedisClient("", 1)
+	if rc == nil {
+		t.Fatal("NewRedisClient returned nil")
+	}
+	if err := rc.Connect(); err == nil {
+		t.Fatal("expected connect error for empty redis addr")
 	}
 }
 
@@ -61,3 +74,102 @@ func TestRedisConnectDefaultsAndClose(t *testing.T) {
 		t.Fatalf("second close failed: %v", err)
 	}
 }
+
+func TestRedisReconnectResetsCloseOnce(t *testing.T) {
+	rc := &RedisClient{}
+	rc.setPoolForTest(&redis.Pool{
+		MaxActive: 1,
+		Dial: func() (redis.Conn, error) {
+			return fakeRedisConn{}, nil
+		},
+	})
+	if err := rc.Close(); err != nil {
+		t.Fatalf("first close failed: %v", err)
+	}
+	rc.setPoolForTest(&redis.Pool{
+		MaxActive: 1,
+		Dial: func() (redis.Conn, error) {
+			return fakeRedisConn{}, nil
+		},
+	})
+	if err := rc.Close(); err != nil {
+		t.Fatalf("second close after reconnect failed: %v", err)
+	}
+	rc.mu.RLock()
+	pool := rc.pool
+	rc.mu.RUnlock()
+	if pool != nil {
+		t.Fatal("pool was not closed after reconnect")
+	}
+}
+
+func TestRedisCloseDoesNotWaitForBlockedPoolGet(t *testing.T) {
+	rc := &RedisClient{
+		pool: &redis.Pool{
+			MaxActive: 1,
+			Wait:      true,
+			Dial: func() (redis.Conn, error) {
+				return fakeRedisConn{}, nil
+			},
+		},
+	}
+	c := rc.pool.Get()
+	defer c.Close()
+
+	doStarted := make(chan struct{})
+	doDone := make(chan struct{})
+	go func() {
+		close(doStarted)
+		_, _ = rc.Do("PING")
+		close(doDone)
+	}()
+	select {
+	case <-doStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Do goroutine did not start")
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- rc.Close()
+	}()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close error = %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Close blocked behind Do waiting in pool.Get")
+	}
+	_ = c.Close()
+	select {
+	case <-doDone:
+	case <-time.After(time.Second):
+		t.Fatal("Do did not unblock after held connection closed")
+	}
+}
+
+func (rc *RedisClient) setPoolForTest(pool *redis.Pool) {
+	rc.mu.Lock()
+	rc.pool = pool
+	rc.closeOnce = sync.Once{}
+	rc.closeErr = nil
+	rc.mu.Unlock()
+}
+
+type fakeRedisConn struct{}
+
+func (fakeRedisConn) Close() error { return nil }
+
+func (fakeRedisConn) Err() error { return nil }
+
+func (fakeRedisConn) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
+	return nil, nil
+}
+
+func (fakeRedisConn) Send(commandName string, args ...interface{}) error { return nil }
+
+func (fakeRedisConn) Flush() error { return nil }
+
+func (fakeRedisConn) Receive() (reply interface{}, err error) { return nil, nil }

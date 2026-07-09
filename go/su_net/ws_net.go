@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go.local/my_util"
 	slog "go.local/su_log"
+	"go.local/su_util"
 	"net"
 	"net/http"
 	"strings"
@@ -240,7 +240,7 @@ type WSServer struct {
 	conns      map[uint64]*WSConn
 	connsMu    sync.Mutex
 	nextConnID uint64
-	pool       *my_util.GoPool
+	pool       *su_util.GoPool
 	closeOnce  sync.Once
 	upgrader   websocket.Upgrader
 }
@@ -255,7 +255,7 @@ func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
 		Path:     defaultWSPath,
 		listener: listener,
 		conns:    make(map[uint64]*WSConn),
-		pool:     my_util.NewGoPool(16, 1024),
+		pool:     su_util.NewGoPool(16, 1024),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},

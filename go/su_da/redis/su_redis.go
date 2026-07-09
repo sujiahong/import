@@ -29,11 +29,18 @@ type RedisClient struct {
 	ConnNum    int
 	cfg        RedisConfig
 	mu         sync.RWMutex
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 func NewRedisClient(redis_addr string, conn_num int) *RedisClient {
-	rc, _ := NewRedisClientWithConfig(RedisConfig{RemoteAddr: redis_addr, ConnNum: conn_num, Wait: true})
-	return rc
+	cfg := defaultRedisConfig(RedisConfig{RemoteAddr: redis_addr, ConnNum: conn_num, Wait: true})
+	cfg.RemoteAddr = redis_addr
+	return &RedisClient{
+		RemoteAddr: cfg.RemoteAddr,
+		ConnNum:    cfg.ConnNum,
+		cfg:        cfg,
+	}
 }
 
 func NewRedisClientWithConfig(cfg RedisConfig) (*RedisClient, error) {
@@ -55,6 +62,9 @@ func (rc *RedisClient) Connect() error {
 	cfg := defaultRedisConfig(rc.cfg)
 	if cfg.RemoteAddr == "" {
 		cfg.RemoteAddr = rc.RemoteAddr
+	}
+	if cfg.RemoteAddr == "" {
+		return errors.New("redis remote addr is empty")
 	}
 	pool := &redis.Pool{
 		MaxIdle:     cfg.MaxIdle,
@@ -86,6 +96,8 @@ func (rc *RedisClient) Connect() error {
 	rc.cfg = cfg
 	rc.RemoteAddr = cfg.RemoteAddr
 	rc.ConnNum = cfg.ConnNum
+	rc.closeOnce = sync.Once{}
+	rc.closeErr = nil
 	rc.mu.Unlock()
 	if oldPool != nil {
 		_ = oldPool.Close()
@@ -111,16 +123,18 @@ func (rc *RedisClient) Close() error {
 	if rc == nil {
 		return nil
 	}
-	rc.mu.Lock()
-	if rc.pool == nil {
+	rc.closeOnce.Do(func() {
+		rc.mu.Lock()
+		if rc.pool == nil {
+			rc.mu.Unlock()
+			return
+		}
+		pool := rc.pool
+		rc.pool = nil
 		rc.mu.Unlock()
-		return nil
-	}
-	pool := rc.pool
-	rc.pool = nil
-	rc.mu.Unlock()
-	err := pool.Close()
-	return err
+		rc.closeErr = pool.Close()
+	})
+	return rc.closeErr
 }
 
 func (rc *RedisClient) Do(cmd string, args ...interface{}) (interface{}, error) {
@@ -129,13 +143,12 @@ func (rc *RedisClient) Do(cmd string, args ...interface{}) (interface{}, error) 
 	}
 	rc.mu.RLock()
 	pool := rc.pool
+	rc.mu.RUnlock()
 	if pool == nil {
-		rc.mu.RUnlock()
 		return nil, errors.New("redis client is not connected")
 	}
 	c := pool.Get()
 	defer c.Close()
-	defer rc.mu.RUnlock()
 	if err := c.Err(); err != nil {
 		return nil, err
 	}

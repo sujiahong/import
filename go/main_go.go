@@ -2,18 +2,18 @@ package main
 
 import (
 	"fmt"
-	// "go/my_util"
+	// "go.local/su_util"
 	// slog "go/su_log"
 	// "os"
 	// "runtime"
 	"time"
 	//"strings"
 	"context"
-	"sync"
-	"strconv"
 	"hash/crc32"
 	"math"
-	// "go/my_util/go_pool"
+	"strconv"
+	"sync"
+	// "go.local/su_util/go_pool"
 
 	// "github.com/panjf2000/gnet"
 	// "github.com/panjf2000/gnet/pkg/pool/goroutine"
@@ -44,7 +44,7 @@ func a() {
 	for i := 1; i < 10; i++ {
 		fmt.Println("A:", i)
 	}
-	go func(){
+	go func() {
 		for i := 1; i < 1000; i++ {
 			fmt.Println("aa:", i, aa)
 		}
@@ -59,26 +59,26 @@ func b() {
 }
 
 type student struct {
-	name string   
-	age int       
-	height int    
+	name   string
+	age    int
+	height int
 }
 
 type PINFO struct {
-	Id int  `db:"id"`
-	Name string   `db:"name"`
+	Id   int    `db:"id"`
+	Name string `db:"name"`
 }
 
 var wg sync.WaitGroup
 
-func worker(ctx context.Context){
+func worker(ctx context.Context) {
 	go worker2(ctx)
 LOOP:
 	for {
 		fmt.Println("worker")
 		time.Sleep(time.Second)
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			break LOOP
 		default:
 		}
@@ -86,26 +86,26 @@ LOOP:
 	wg.Done()
 }
 
-func worker2(ctx context.Context){
+func worker2(ctx context.Context) {
 LOOP:
 	for {
 		fmt.Println("worker2")
 		time.Sleep(time.Second)
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			break LOOP
 		default:
 		}
 	}
 }
 
-func worker3(ctx context.Context){
+func worker3(ctx context.Context) {
 LOOP:
 	for {
 		fmt.Println("db connecting ...")
-		time.Sleep(time.Millisecond*10)
+		time.Sleep(time.Millisecond * 10)
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			break LOOP
 		default:
 		}
@@ -116,7 +116,7 @@ LOOP:
 
 func GetTodayZeroTime() int64 {
 	now := time.Now()
-	zero_time := time.Date(now.Year(), now.Month(), now.Day(),0,0,0,0,now.Location())
+	zero_time := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	return zero_time.Unix()
 }
 
@@ -132,7 +132,7 @@ func GetMiniNeedPower(totalForce uint64) (uint64, uint64) {
 		return 0, 10
 	}
 	str := strconv.FormatUint(totalForce, 10)
-	n, _ := strconv.ParseUint(str[0:1], 10, 64) 
+	n, _ := strconv.ParseUint(str[0:1], 10, 64)
 	m := uint64(math.Pow(10, float64(len(str)-1)))
 	fmt.Println(str, m, n, len(str))
 	ret := n * m
@@ -145,11 +145,11 @@ func main() {
 	// p, _ := os.Getwd()
 	// tm_str := tn.String()
 	// C.hi();
-	// fmt.Println("111111111 ", p, tm_str, tm_str[0:27], my_util.GetTimePrintString())
+	// fmt.Println("111111111 ", p, tm_str, tm_str[0:27], su_util.GetTimePrintString())
 	// fmt.Println(GetMiniNeedPower(1066))
-	// var li = my_util.GetLogFileLine()
+	// var li = su_util.GetLogFileLine()
 	// fmt.Println(li, math.Ceil(0.03))
-	// my_util.Classifier(li)
+	// su_util.Classifier(li)
 	// var itemCount float64 = 51240
 	// var at_rate float64 = 2500.0
 	// var MAX_PRO float64 = 10000.0
@@ -165,8 +165,8 @@ func main() {
 	// 	fmt.Println("hello")
 	// }
 
-	// fmt.Println(my_util.GetTodayDate())
-	// fmt.Println("1231  ", my_util.GetZeroTime(0), )
+	// fmt.Println(su_util.GetTodayDate())
+	// fmt.Println("1231  ", su_util.GetZeroTime(0), )
 	// fmt.Println(GetCrc32Sum(1, 2, 3))
 
 	// go a()
@@ -193,7 +193,7 @@ func main() {
 	// 		}
 	// 	}(j)
 	// }
-	
+
 	// for i := 0; i <1000; i++ {
 	// 	slog.Info("test log", zap.Int("uid", 321323+i))
 	// }
@@ -204,9 +204,9 @@ func main() {
 	// echo := &echoServer{pool: p}
 	// gnet.Serve(echo, "tcp:://:9000", gnet.WithMulticore(true))
 	//fmt.Println("@@@@@", GetTodayZeroTime())
-	
+
 	// nano := uint64(tn.UnixNano())
-	// my_util.DelayRun(1000, func(){
+	// su_util.DelayRun(1000, func(){
 	// 	zero := 0
 	// 	x := nano / uint64(zero)
 	// 	slog.Info("delay run", zap.Any("nano", nano), zap.Any("x", x))
@@ -218,14 +218,14 @@ func main() {
 	// }
 	// fmt.Println("student=", st)
 	// slog.Info("student ", zap.Any("st", st))
-	// my_util.IntervalRun(100, 0, func(){
+	// su_util.IntervalRun(100, 0, func(){
 	// 	slog.Info("interval run", zap.Any("q", 3))
 	// })
 	// time.Sleep(time.Second*400)
 
-	// my_util.CopyFile("./t.log", "1.log")
+	// su_util.CopyFile("./t.log", "1.log")
 
-	// gp := my_util.NewGoPool(3, 3)
+	// gp := su_util.NewGoPool(3, 3)
 	// for i := 0; i < 10; i++ {
 	// 	nano1 := time.Now().UnixNano()
 	// 	gp.SendTask(uint64(nano1), func(){
@@ -254,7 +254,7 @@ func main() {
 	// 	slog.Info(" finish ", zap.Any("rs", rs))
 	// })
 	// gts.Run()
-	
+
 	// gtc := su_net.CreateClient("127.0.0.1:9990",2)
 	// gtc.RegisterHandler(10000, &Test.TestRQ{}, 10001, &Test.TestRS{}, func(gnc *su_net.GNetConn,a_shardingid uint64, a_rq proto.Message, a_rs proto.Message){
 	// 	rq := a_rq.(*Test.TestRQ)
@@ -282,11 +282,11 @@ func main() {
 	// cancel()
 	// wg.Wait()
 	// fmt.Println("over")
-	
+
 	// data_slice := make([]byte, 0, 0)
 	// str := "88888888"
 	// slice := []byte(str)
-	// fmt.Println(data_slice, str, slice)	
+	// fmt.Println(data_slice, str, slice)
 	// for i := 0; i < 100; i++ {
 	// 	data_slice = append(data_slice, slice...)
 	// 	data_slice = data_slice[7:]
@@ -312,8 +312,8 @@ func main() {
 	// slog.Info("kafka 相关测试")
 	// kp := skafka.NewKafkaProducer([]string{"127.0.0.1:7000"}, "test", true)
 	// kp.Send("1234234233")
-	// kc := skafka.NewKafkaConsumer([]string{"127.0.0.1:7000"}, "test", "test1", func(a_pa_id int32){
-	// 	slog.Info("kafka 消费", zap.Int32("partion_id", a_pa_id))
+	// kc := skafka.NewKafkaConsumer([]string{"127.0.0.1:7000"}, "test", "test1", func(a_pa_id int32, msg *sarama.ConsumerMessage){
+	// 	slog.Info("kafka 消费", zap.Int32("partion_id", a_pa_id), zap.ByteString("value", msg.Value))
 	// })
 	// time.Sleep(time.Second)
 	// kc.ConsumeAllPartion()

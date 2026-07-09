@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go.local/my_util"
 	slog "go.local/su_log"
+	"go.local/su_util"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -73,7 +73,7 @@ func newProtoFromType(t reflect.Type) proto.Message {
 
 type GTcpServer struct {
 	gnet.BuiltinEventEngine                 ////匿名字段   事件服务
-	pool                    *my_util.GoPool ///协程池
+	pool                    *su_util.GoPool ///协程池
 	Stat                    int32           /// 服务状态 0 停止 1 初始化 2 启动
 	Addr                    string          ////监听地址
 	protoAddr               string
@@ -293,7 +293,7 @@ func (ts *GTcpServer) Run() {
 
 func CreateGNetServer(a_addr string) *GTcpServer {
 	ts := &GTcpServer{dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT}
-	ts.pool = my_util.NewGoPool(16, 1024)
+	ts.pool = su_util.NewGoPool(16, 1024)
 	return ts
 }
 
@@ -340,7 +340,7 @@ type GTcpClient struct {
 	connMap                 sync.Map /////ip - 连接映射
 	connMu                  sync.RWMutex
 	connList                []*GNetConn
-	pool                    *my_util.GoPool
+	pool                    *su_util.GoPool
 	regHandlerMap           sync.Map /////注册处理映射
 	rawHandler              GNetRawHandler
 	dispatchMode            GNetDispatchMode
@@ -472,14 +472,14 @@ func (tc *GTcpClient) dispatch(gconn *GNetConn, dp *DataProtocol) {
 	}
 }
 
-func (tc *GTcpClient) ensurePool() *my_util.GoPool {
+func (tc *GTcpClient) ensurePool() *su_util.GoPool {
 	if tc == nil {
 		return nil
 	}
 	tc.connMu.Lock()
 	defer tc.connMu.Unlock()
 	if tc.pool == nil {
-		tc.pool = my_util.NewGoPool(16, 1024)
+		tc.pool = su_util.NewGoPool(16, 1024)
 	}
 	return tc.pool
 }
@@ -729,7 +729,7 @@ func (tc *GTcpClient) Reconnect() {
 	if !atomic.CompareAndSwapInt32(&tc.reconnectState, 0, 1) {
 		return
 	}
-	my_util.DelayRun(RECONNECT_INTERVAL*1000, func() {
+	su_util.DelayRun(RECONNECT_INTERVAL*1000, func() {
 		err := tc.Connect()
 		if err != nil {
 			atomic.StoreInt32(&tc.reconnectState, 0)

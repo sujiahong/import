@@ -1,70 +1,73 @@
 package geo
 
 import (
-	"go/my_util"
+	"go.local/su_util"
 	// "fmt"
 )
 
 type Point struct {
-	X     float64
-	Y     float64
+	X float64
+	Y float64
 }
-func (p *Point)GetX() float64 {return p.X}
-func (p *Point)GetY() float64 {return p.Y}
+
+func (p *Point) GetX() float64 { return p.X }
+func (p *Point) GetY() float64 { return p.Y }
 
 func SubVector(p1, p2 *Point) *Point {
 	return &Point{
 		X: p1.X - p2.X,
-		Y: p1.Y  - p2.Y,
+		Y: p1.Y - p2.Y,
 	}
 }
 func CrossProduct(p1, p2 *Point) float64 {
-	return p1.X * p2.Y - p2.X * p1.Y
+	return p1.X*p2.Y - p2.X*p1.Y
 }
-/////是否在三角形内
+
+// ///是否在三角形内
 func IsInTriangle(points []*Point, tp *Point) bool {
 	if len(points) < 3 {
 		return false
 	}
 	var nCurCrossProduct float64 = 0.0
-	var nLastValue       float64 = 0.0
-	for i := 0; i < len(points);  i++ {
+	var nLastValue float64 = 0.0
+	for i := 0; i < len(points); i++ {
 		vP1 := SubVector(tp, points[i])
 		nNextIndex := (i + 1) % len(points)
 		vP2 := SubVector(points[nNextIndex], points[i])
 		nCurCrossProduct = CrossProduct(vP1, vP2)
-		if i > 0 && nCurCrossProduct * nLastValue <= 0 {
+		if i > 0 && nCurCrossProduct*nLastValue <= 0 {
 			return false
 		}
 		nLastValue = nCurCrossProduct
 	}
 	return true
 }
-////根据直线求交点
+
+// //根据直线求交点
 func CrossPoint(p1, p2, p3, p4 *Point) *Point {
 	// 空指针检查
 	if p1 == nil || p2 == nil || p3 == nil || p4 == nil {
 		return nil
 	}
-	
+
 	// 计算分母
-	denominator := (p1.X - p2.X)*(p3.Y - p4.Y) - (p1.Y - p2.Y)*(p3.X - p4.X)
+	denominator := (p1.X-p2.X)*(p3.Y-p4.Y) - (p1.Y-p2.Y)*(p3.X-p4.X)
 	if denominator == 0 {
 		// 两直线平行或重合
 		return nil
 	}
-	
+
 	// 计算分子
-	xm := ((p1.X*p2.Y - p1.Y*p2.X)*(p3.X - p4.X) - (p1.X - p2.X)*(p3.X*p4.Y - p3.Y*p4.X))
-	ym := ((p1.X*p2.Y - p1.Y*p2.X)*(p3.Y - p4.Y) - (p1.Y - p2.Y)*(p3.X*p4.Y - p3.Y*p4.X))
-	
+	xm := ((p1.X*p2.Y-p1.Y*p2.X)*(p3.X-p4.X) - (p1.X-p2.X)*(p3.X*p4.Y-p3.Y*p4.X))
+	ym := ((p1.X*p2.Y-p1.Y*p2.X)*(p3.Y-p4.Y) - (p1.Y-p2.Y)*(p3.X*p4.Y-p3.Y*p4.X))
+
 	return &Point{
-		X: xm/denominator,
-		Y: ym/denominator,
+		X: xm / denominator,
+		Y: ym / denominator,
 	}
 }
 func LineSegmentOnPoint(p1, p2 *Point) *Point {
-	r1 := my_util.SafeRandRange(0, 9999)
+	r1 := su_util.SafeRandRange(0, 9999)
 	r2 := 10000 - r1
 	f1 := float64(r1) / 10000.0
 	f2 := float64(r2) / 10000.0
@@ -73,10 +76,11 @@ func LineSegmentOnPoint(p1, p2 *Point) *Point {
 		Y: f1*p2.Y + f2*p1.Y,
 	}
 }
-///三角形行内随机点
+
+// /三角形行内随机点
 func TriangleInnerPoint(p1, p2, p3 *Point) *Point {
-	r1 := my_util.SafeRandRange(1, 9998)
-	r2 := my_util.SafeRandRange(1, 9999 - r1)
+	r1 := su_util.SafeRandRange(1, 9998)
+	r2 := su_util.SafeRandRange(1, 9999-r1)
 	r3 := 10000 - r1 - r2
 	f1 := float64(r1) / 10000.0
 	f2 := float64(r2) / 10000.0
@@ -87,26 +91,28 @@ func TriangleInnerPoint(p1, p2, p3 *Point) *Point {
 		Y: f1*p1.Y + f2*p2.Y + f3*p3.Y,
 	}
 }
-//////多边形内随机点
+
+// ////多边形内随机点
 func PolygonInnerRandPoint(points []*Point) *Point {
 	ln := len(points)
 	if ln == 2 {
 		return LineSegmentOnPoint(points[0], points[1])
-	}else if ln == 1 {
+	} else if ln == 1 {
 		return points[0]
-	}else if ln == 0{
+	} else if ln == 0 {
 		return nil
 	} else if ln < 3 {
 		return nil
 	}
 	triangleNum := ln - 2
-	k := my_util.SafeRandRange(1, int64(triangleNum))
+	k := su_util.SafeRandRange(1, int64(triangleNum))
 	p1 := points[0]
 	p2 := points[int(k)]
 	p3 := points[int(k)+1]
 	return TriangleInnerPoint(p1, p2, p3)
 }
-/////判断点是否在多边形内(射线法)
+
+// ///判断点是否在多边形内(射线法)
 func IsInPolygon(points []*Point, tp *Point) bool {
 	ln := len(points)
 	if ln < 3 {
@@ -122,10 +128,10 @@ func IsInPolygon(points []*Point, tp *Point) bool {
 		}
 		if p1.Y <= p2.Y {
 			min, max = p1.Y, p2.Y
-		}else {
+		} else {
 			min, max = p2.Y, p1.Y
 		}
-		if tp.Y < min || tp.Y >= max { ////点在线段之外，无交点  
+		if tp.Y < min || tp.Y >= max { ////点在线段之外，无交点
 			continue
 		}
 		dy1 := tp.Y - p1.Y
@@ -134,13 +140,13 @@ func IsInPolygon(points []*Point, tp *Point) bool {
 		x := dy1*dx/dy2 + p1.X
 		if x > tp.X {
 			c_n++
-		}else if (x == tp.X){
+		} else if x == tp.X {
 			return true
 		}
 	}
 	if (c_n & 1) == 1 {
 		return true
-	}else {
+	} else {
 		return false
 	}
 }

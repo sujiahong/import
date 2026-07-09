@@ -1,7 +1,7 @@
 package su_net
 
 import (
-	"go.local/my_util"
+	"go.local/su_util"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -138,7 +138,7 @@ func TestTcpServerCloseDrainsQueuedPoolTasks(t *testing.T) {
 		t.Fatalf("CreateTcpServer() error = %v", err)
 	}
 	server.pool.Stop()
-	server.pool = my_util.NewGoPool(1, 16)
+	server.pool = su_util.NewGoPool(1, 16)
 
 	block := make(chan struct{})
 	ran := make(chan struct{})

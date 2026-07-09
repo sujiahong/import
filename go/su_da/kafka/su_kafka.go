@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"go.local/my_util"
 	slog "go.local/su_log"
+	"go.local/su_util"
 	"go.uber.org/zap"
 )
 
@@ -45,6 +45,12 @@ type KafkaProducer struct {
 	closeOnce   sync.Once
 	closeErr    error
 	logMessages bool
+}
+
+type syncSendResult struct {
+	partition int32
+	offset    int64
+	err       error
 }
 
 func NewKafkaProducer(a_addr []string, a_topic string, a_async bool) *KafkaProducer {
@@ -152,6 +158,47 @@ func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (
 	if kp.client == nil {
 		return errors.New("kafka sync producer is not connected")
 	}
+	var producerDone <-chan struct{}
+	if kp.ctx != nil {
+		producerDone = kp.ctx.Done()
+	}
+	ctxDone := ctx.Done()
+	select {
+	case <-ctxDone:
+		return ctx.Err()
+	case <-producerDone:
+		return errors.New("kafka producer is closed")
+	default:
+	}
+
+	if ctxDone == nil {
+		return kp.sendSyncMessage(msg)
+	}
+
+	resultCh := make(chan syncSendResult, 1)
+	go func() {
+		pid, offset, sendErr := kp.client.SendMessage(msg)
+		resultCh <- syncSendResult{partition: pid, offset: offset, err: sendErr}
+	}()
+
+	select {
+	case <-ctxDone:
+		return ctx.Err()
+	case <-producerDone:
+		return errors.New("kafka producer is closed")
+	case result := <-resultCh:
+		if result.err != nil {
+			slog.Error("kafka SendMessage failed", zap.Error(result.err))
+			return result.err
+		}
+		if kp.logMessages {
+			slog.Info("kafka sync send", zap.Any("pid", result.partition), zap.Any("offset", result.offset))
+		}
+		return nil
+	}
+}
+
+func (kp *KafkaProducer) sendSyncMessage(msg *sarama.ProducerMessage) error {
 	pid, offset, err := kp.client.SendMessage(msg)
 	if err != nil {
 		slog.Error("kafka SendMessage failed", zap.Error(err))
@@ -216,7 +263,7 @@ func (kp *KafkaProducer) handleError() {
 	}
 }
 
-type HandleFunc func(a_partion_id int32)
+type HandleFunc func(a_partion_id int32, msg *sarama.ConsumerMessage)
 type HandleMessageFunc func(ctx context.Context, msg *sarama.ConsumerMessage) error
 
 type KafkaConsumerConfig struct {
@@ -237,7 +284,7 @@ type KafkaConsumer struct {
 	ClientID         string
 	processFunc      HandleFunc
 	messageFunc      HandleMessageFunc
-	pool             *my_util.GoPool
+	pool             *su_util.GoPool
 	ctx              context.Context
 	cancel           func()
 	closeOnce        sync.Once
@@ -325,7 +372,7 @@ func (kc *KafkaConsumer) ConsumeOnePartion(a_partion_id int32) {
 	kc.wg.Add(1)
 	go func() {
 		defer kc.wg.Done()
-		defer my_util.RecoverPanic()
+		defer su_util.RecoverPanic()
 		defer pc.AsyncClose()
 		for {
 			select {
@@ -381,7 +428,9 @@ func (kc *KafkaConsumer) Close() {
 		pool := kc.pool
 		kc.poolMu.Unlock()
 		if pool != nil {
-			pool.Stop()
+			if !pool.StopAndDrain(kc.closeTimeout) {
+				slog.Warn("kafka consumer pool drain timeout")
+			}
 		}
 	})
 }
@@ -401,7 +450,7 @@ func (kc *KafkaConsumer) dispatchMessage(msg *sarama.ConsumerMessage, partionID 
 			return
 		}
 		if kc.processFunc != nil {
-			kc.processFunc(partionID)
+			kc.processFunc(partionID, msg)
 		}
 	}
 	shardingID := uint64(msg.Offset)
@@ -436,7 +485,7 @@ func (kc *KafkaConsumer) ensurePool(partitionCount int) {
 		}
 		kc.workerNum = workerNum
 	}
-	kc.pool = my_util.NewGoPool(workerNum, kc.queueSize)
+	kc.pool = su_util.NewGoPool(workerNum, kc.queueSize)
 }
 
 func defaultKafkaProducerConfig(cfg KafkaProducerConfig) KafkaProducerConfig {

@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
+	"go.local/su_util"
 	"go/geo"
-	"go/my_util"
 )
 
 func main() {
 	// 测试随机数生成
 	fmt.Println("=== 测试随机数生成 ===")
 	for i := 0; i < 5; i++ {
-		random := my_util.SafeRandRange(1, 100)
+		random := su_util.SafeRandRange(1, 100)
 		fmt.Printf("随机数 %d: %d\n", i+1, random)
 	}
 

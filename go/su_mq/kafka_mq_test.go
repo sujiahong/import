@@ -29,3 +29,16 @@ func TestKafkaConsumerNilSafe(t *testing.T) {
 	}
 	kc.Close()
 }
+
+func TestKafkaPartitionHandlerIncludesMessage(t *testing.T) {
+	var handler KafkaPartitionHandler = func(partitionID int32, msg *sarama.ConsumerMessage) {
+		if partitionID != 1 {
+			t.Fatalf("partitionID = %d, want 1", partitionID)
+		}
+		if string(msg.Value) != "payload" {
+			t.Fatalf("message value = %q, want payload", msg.Value)
+		}
+	}
+
+	handler(1, &sarama.ConsumerMessage{Value: []byte("payload")})
+}

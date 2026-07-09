@@ -1,4 +1,4 @@
-package my_util
+package su_util
 
 import (
 	"sync"

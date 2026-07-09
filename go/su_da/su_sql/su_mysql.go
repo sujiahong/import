@@ -44,10 +44,12 @@ type MysqlClient struct {
 	MaxIdleCns int
 	cfg        MysqlConfig
 	mu         sync.RWMutex
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns, a_max_idle_conns int) *MysqlClient {
-	mc, _ := NewMysqlClientWithConfig(MysqlConfig{
+	cfg := defaultMysqlConfig(MysqlConfig{
 		Uname:        a_uname,
 		Passwd:       a_passwd,
 		Addr:         a_addr,
@@ -55,7 +57,15 @@ func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns
 		MaxOpenConns: a_max_open_conns,
 		MaxIdleConns: a_max_idle_conns,
 	})
-	return mc
+	return &MysqlClient{
+		Uname:      cfg.Uname,
+		Passwd:     cfg.Passwd,
+		Addr:       cfg.Addr,
+		DbName:     cfg.DbName,
+		MaxOpenCns: cfg.MaxOpenConns,
+		MaxIdleCns: cfg.MaxIdleConns,
+		cfg:        cfg,
+	}
 }
 
 func NewMysqlClientWithConfig(cfg MysqlConfig) (*MysqlClient, error) {
@@ -109,6 +119,8 @@ func (mc *MysqlClient) Connect() error {
 	mc.DbName = cfg.DbName
 	mc.MaxOpenCns = cfg.MaxOpenConns
 	mc.MaxIdleCns = cfg.MaxIdleConns
+	mc.closeOnce = sync.Once{}
+	mc.closeErr = nil
 	mc.mu.Unlock()
 	if oldDB != nil {
 		_ = oldDB.Close()
@@ -127,17 +139,19 @@ func (mc *MysqlClient) Close() error {
 	if mc == nil {
 		return nil
 	}
-	mc.mu.Lock()
-	if mc.Db == nil {
+	mc.closeOnce.Do(func() {
+		mc.mu.Lock()
+		if mc.Db == nil {
+			mc.mu.Unlock()
+			return
+		}
+		db := mc.Db
+		mc.Db = nil
 		mc.mu.Unlock()
-		return nil
-	}
-	db := mc.Db
-	mc.Db = nil
-	mc.mu.Unlock()
-	err := db.Close()
-	slog.Info("mysql Close ", zap.Error(err))
-	return err
+		mc.closeErr = db.Close()
+		slog.Info("mysql Close ", zap.Error(mc.closeErr))
+	})
+	return mc.closeErr
 }
 
 func (mc *MysqlClient) Insert(a_cmd string, a_parm ...interface{}) error {
@@ -205,9 +219,7 @@ func (mc *MysqlClient) ExecContext(ctx context.Context, a_cmd string, a_parm ...
 	if mc == nil {
 		return nil, errors.New("mysql client is not connected")
 	}
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
-	db, err := mc.dbLocked()
+	db, err := mc.db()
 	if err != nil {
 		return nil, err
 	}
@@ -225,9 +237,7 @@ func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_
 	if mc == nil {
 		return errors.New("mysql client is not connected")
 	}
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
-	db, err := mc.dbLocked()
+	db, err := mc.db()
 	if err != nil {
 		return err
 	}
@@ -236,8 +246,17 @@ func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_
 		slog.Error("mysql query failed", zap.Error(err))
 		return err
 	}
-	slog.Info("success ", zap.String("a_cmd", a_cmd))
 	return nil
+}
+
+func (mc *MysqlClient) db() (*sqlx.DB, error) {
+	if mc == nil {
+		return nil, errors.New("mysql client is not connected")
+	}
+	mc.mu.RLock()
+	db, err := mc.dbLocked()
+	mc.mu.RUnlock()
+	return db, err
 }
 
 func defaultMysqlConfig(cfg MysqlConfig) MysqlConfig {

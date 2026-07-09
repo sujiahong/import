@@ -3,8 +3,8 @@ package su_net
 import (
 	"errors"
 	"fmt"
-	"go.local/my_util"
 	slog "go.local/su_log"
+	"go.local/su_util"
 	"io"
 	"net"
 	"sync"
@@ -252,7 +252,7 @@ type TcpServer struct {
 	conns     map[string]*TcpConn
 	connsMu   sync.Mutex
 	closeOnce sync.Once
-	pool      *my_util.GoPool
+	pool      *su_util.GoPool
 }
 
 func CreateTcpServer(addr string, handlers ...TcpHandler) (*TcpServer, error) {
@@ -268,7 +268,7 @@ func CreateTcpServer(addr string, handlers ...TcpHandler) (*TcpServer, error) {
 		Addr:     listener.Addr().String(),
 		listener: listener,
 		conns:    make(map[string]*TcpConn),
-		pool:     my_util.NewGoPool(16, 1024),
+		pool:     su_util.NewGoPool(16, 1024),
 	}
 	if len(handlers) > 0 {
 		server.handler = handlers[0]

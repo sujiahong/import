@@ -1,29 +1,29 @@
-package my_util_test
+package su_util_test
 
 import (
 	"fmt"
-	"go.local/my_util"
+	"go.local/su_util"
 	"testing"
 )
 
 func TestGetLogFileLine(t *testing.T) {
-	line := my_util.GetLogFileLine()
+	line := su_util.GetLogFileLine()
 	fmt.Println(line)
 }
 
 func TestGetZeroTime(t *testing.T) {
-	fmt.Println("@@@@@", my_util.GetTodayZeroTime())
+	fmt.Println("@@@@@", su_util.GetTodayZeroTime())
 }
 
 func TestToString(t *testing.T) {
 	// v := 20102.9390394
 	var v1 uint32 = 343
-	fmt.Println(my_util.ToString(v1))
+	fmt.Println(su_util.ToString(v1))
 }
 
 func TestSyncMustSuccessIO(t *testing.T) {
 	fmt.Println("111111111")
-	my_util.SyncMustSuccessIO(func() error {
+	su_util.SyncMustSuccessIO(func() error {
 		return nil
 	})
 	fmt.Println("22222222")
@@ -32,7 +32,7 @@ func TestSyncMustSuccessIO(t *testing.T) {
 func TestAsyncMustSuccessIO(t *testing.T) {
 	fmt.Println("111111111")
 	done := make(chan struct{})
-	my_util.AsyncMustSuccessIO(func() error {
+	su_util.AsyncMustSuccessIO(func() error {
 		close(done)
 		return nil
 	})

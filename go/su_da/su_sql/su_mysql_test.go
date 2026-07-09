@@ -1,8 +1,16 @@
 package su_mysql
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"io"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 func TestMysqlOperationsBeforeConnectReturnError(t *testing.T) {
@@ -35,6 +43,42 @@ func TestMysqlCloseIsNilSafe(t *testing.T) {
 	}
 }
 
+func TestNewMysqlClientIncompleteConfigDoesNotReturnNil(t *testing.T) {
+	mc := NewMysqlClient("", "", "", "", 1, 1)
+	if mc == nil {
+		t.Fatal("NewMysqlClient returned nil")
+	}
+	if err := mc.Connect(); err == nil {
+		t.Fatal("expected connect error for incomplete mysql config")
+	}
+}
+
+func TestMysqlCloseOnceAndReconnectReset(t *testing.T) {
+	var closeCount atomic.Int32
+	mc := &MysqlClient{Db: newFakeMysqlDB(&closeCount)}
+	if err := mc.Close(); err != nil {
+		t.Fatalf("first close failed: %v", err)
+	}
+	if err := mc.Close(); err != nil {
+		t.Fatalf("second close failed: %v", err)
+	}
+	if got := closeCount.Load(); got != 1 {
+		t.Fatalf("closeCount = %d, want 1", got)
+	}
+
+	mc.mu.Lock()
+	mc.Db = newFakeMysqlDB(&closeCount)
+	mc.closeOnce = sync.Once{}
+	mc.closeErr = nil
+	mc.mu.Unlock()
+	if err := mc.Close(); err != nil {
+		t.Fatalf("close after reconnect failed: %v", err)
+	}
+	if got := closeCount.Load(); got != 2 {
+		t.Fatalf("closeCount after reconnect = %d, want 2", got)
+	}
+}
+
 func TestMysqlConfigConstructorDefaults(t *testing.T) {
 	mc, err := NewMysqlClientWithConfig(MysqlConfig{
 		Uname:  "root",
@@ -54,3 +98,74 @@ func TestMysqlConfigConstructorDefaults(t *testing.T) {
 		t.Fatalf("ConnMaxLifetime = %v, want %v", mc.cfg.ConnMaxLifetime, time.Hour)
 	}
 }
+
+func newFakeMysqlDB(closeCount *atomic.Int32) *sqlx.DB {
+	db := sql.OpenDB(fakeMysqlConnector{closeCount: closeCount})
+	if err := db.Ping(); err != nil {
+		panic(err)
+	}
+	return sqlx.NewDb(db, "fake-mysql")
+}
+
+type fakeMysqlConnector struct {
+	closeCount *atomic.Int32
+}
+
+func (c fakeMysqlConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	return fakeMysqlConn{closeCount: c.closeCount}, nil
+}
+
+func (c fakeMysqlConnector) Driver() driver.Driver {
+	return fakeMysqlDriver{}
+}
+
+type fakeMysqlDriver struct{}
+
+func (fakeMysqlDriver) Open(name string) (driver.Conn, error) {
+	return fakeMysqlConn{}, nil
+}
+
+type fakeMysqlConn struct {
+	closeCount *atomic.Int32
+}
+
+func (c fakeMysqlConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (c fakeMysqlConn) Close() error {
+	if c.closeCount != nil {
+		c.closeCount.Add(1)
+	}
+	return nil
+}
+
+func (c fakeMysqlConn) Begin() (driver.Tx, error) {
+	return nil, driver.ErrSkip
+}
+
+func (c fakeMysqlConn) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (c fakeMysqlConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	return fakeMysqlResult{}, nil
+}
+
+func (c fakeMysqlConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	return fakeMysqlRows{}, nil
+}
+
+type fakeMysqlResult struct{}
+
+func (fakeMysqlResult) LastInsertId() (int64, error) { return 1, nil }
+
+func (fakeMysqlResult) RowsAffected() (int64, error) { return 1, nil }
+
+type fakeMysqlRows struct{}
+
+func (fakeMysqlRows) Columns() []string { return []string{"a"} }
+
+func (fakeMysqlRows) Close() error { return nil }
+
+func (fakeMysqlRows) Next(dest []driver.Value) error { return io.EOF }

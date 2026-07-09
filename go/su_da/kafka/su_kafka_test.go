@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"go.local/my_util"
+	"go.local/su_util"
 )
 
 func TestKafkaProducerNilSafeErrors(t *testing.T) {
@@ -43,6 +43,55 @@ func TestKafkaConsumerCloseIsNilSafe(t *testing.T) {
 	kc.Close()
 }
 
+func TestKafkaConsumerCloseDrainsPool(t *testing.T) {
+	pool := su_util.NewGoPool(1, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	kc := &KafkaConsumer{
+		ctx:          ctx,
+		cancel:       cancel,
+		pool:         pool,
+		closeTimeout: time.Second,
+	}
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	drained := make(chan struct{})
+
+	if !pool.SendTask(0, func() {
+		close(firstStarted)
+		<-releaseFirst
+	}) {
+		t.Fatal("failed to send first task")
+	}
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first task did not start")
+	}
+	if !pool.SendTask(0, func() {
+		close(drained)
+	}) {
+		t.Fatal("failed to send queued task")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		kc.Close()
+		close(done)
+	}()
+
+	close(releaseFirst)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return")
+	}
+	select {
+	case <-drained:
+	default:
+		t.Fatal("Close returned before draining queued task")
+	}
+}
+
 func TestKafkaProducerSendContextTimeout(t *testing.T) {
 	fp := newFakeAsyncProducer(0)
 	kp := &KafkaProducer{
@@ -60,6 +109,25 @@ func TestKafkaProducerSendContextTimeout(t *testing.T) {
 	}
 }
 
+func TestKafkaProducerSyncSendContextTimeout(t *testing.T) {
+	fp := &fakeSyncProducer{sendDone: make(chan struct{})}
+	kp := &KafkaProducer{
+		Topic:  "test",
+		client: fp,
+		ctx:    context.Background(),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	err := kp.SendContext(ctx, "k", "v")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SendContext error = %v, want deadline exceeded", err)
+	}
+	if !fp.called.Load() {
+		t.Fatal("sync producer SendMessage was not called")
+	}
+}
+
 func TestKafkaConsumerEnsurePoolUsesPartitionCount(t *testing.T) {
 	kc := &KafkaConsumer{queueSize: 1}
 	kc.ensurePool(8)
@@ -73,7 +141,7 @@ func TestKafkaConsumerEnsurePoolUsesPartitionCount(t *testing.T) {
 func TestKafkaConsumerDispatchMessageHandler(t *testing.T) {
 	kc := &KafkaConsumer{
 		ctx:       context.Background(),
-		pool:      my_util.NewGoPool(1, 4),
+		pool:      su_util.NewGoPool(1, 4),
 		queueSize: 4,
 	}
 	defer kc.pool.Stop()
@@ -97,18 +165,21 @@ func TestKafkaConsumerDispatchMessageHandler(t *testing.T) {
 func TestKafkaConsumerDispatchLegacyHandler(t *testing.T) {
 	kc := &KafkaConsumer{
 		ctx:       context.Background(),
-		pool:      my_util.NewGoPool(1, 4),
+		pool:      su_util.NewGoPool(1, 4),
 		queueSize: 4,
 	}
 	defer kc.pool.Stop()
 	var called atomic.Int32
 	done := make(chan struct{})
-	kc.processFunc = func(partitionID int32) {
+	kc.processFunc = func(partitionID int32, msg *sarama.ConsumerMessage) {
+		if string(msg.Value) != "payload" {
+			t.Errorf("message value = %q, want payload", msg.Value)
+		}
 		called.Store(partitionID)
 		close(done)
 	}
 
-	kc.dispatchMessage(&sarama.ConsumerMessage{Partition: 2, Offset: 8}, 2)
+	kc.dispatchMessage(&sarama.ConsumerMessage{Partition: 2, Offset: 8, Value: []byte("payload")}, 2)
 	select {
 	case <-done:
 		if got := called.Load(); got != 2 {
@@ -169,5 +240,41 @@ func (fp *fakeAsyncProducer) AddOffsetsToTxn(offsets map[string][]*sarama.Partit
 }
 
 func (fp *fakeAsyncProducer) AddMessageToTxn(msg *sarama.ConsumerMessage, groupID string, metadata *string) error {
+	return nil
+}
+
+type fakeSyncProducer struct {
+	called   atomic.Bool
+	sendDone chan struct{}
+}
+
+func (fp *fakeSyncProducer) SendMessage(msg *sarama.ProducerMessage) (partition int32, offset int64, err error) {
+	fp.called.Store(true)
+	<-fp.sendDone
+	return 0, 0, nil
+}
+
+func (fp *fakeSyncProducer) SendMessages(msgs []*sarama.ProducerMessage) error { return nil }
+
+func (fp *fakeSyncProducer) Close() error {
+	close(fp.sendDone)
+	return nil
+}
+
+func (fp *fakeSyncProducer) IsTransactional() bool { return false }
+
+func (fp *fakeSyncProducer) TxnStatus() sarama.ProducerTxnStatusFlag { return 0 }
+
+func (fp *fakeSyncProducer) BeginTxn() error { return nil }
+
+func (fp *fakeSyncProducer) CommitTxn() error { return nil }
+
+func (fp *fakeSyncProducer) AbortTxn() error { return nil }
+
+func (fp *fakeSyncProducer) AddOffsetsToTxn(offsets map[string][]*sarama.PartitionOffsetMetadata, groupID string) error {
+	return nil
+}
+
+func (fp *fakeSyncProducer) AddMessageToTxn(msg *sarama.ConsumerMessage, groupID string, metadata *string) error {
 	return nil
 }

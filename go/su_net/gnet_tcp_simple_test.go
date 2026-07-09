@@ -11,8 +11,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/panjf2000/gnet/v2"
-	"go.local/my_util"
 	testpb "go.local/proto/Test"
+	"go.local/su_util"
 )
 
 func freeTCPPort(t *testing.T) string {
@@ -425,7 +425,7 @@ func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
 }
 
 func TestGNetClientStopDrainsQueuedPoolTasks(t *testing.T) {
-	client := &GTcpClient{state: 2, pool: my_util.NewGoPool(1, 16)}
+	client := &GTcpClient{state: 2, pool: su_util.NewGoPool(1, 16)}
 	const tasks = 8
 	var ran int32
 	for i := 0; i < tasks; i++ {
