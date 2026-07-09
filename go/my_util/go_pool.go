@@ -5,6 +5,7 @@ import (
 	"go.uber.org/zap"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ///go协程池
@@ -13,8 +14,10 @@ type GoPool struct {
 	coroutine_num   uint32
 	cache_num       uint32
 	state           int32 ////状态 0 停止 1 运行
+	drain           int32
 	done            chan struct{}
 	stopOnce        sync.Once
+	wg              sync.WaitGroup
 }
 
 func NewGoPool(a_go_num, a_cache_num uint32) *GoPool {
@@ -39,14 +42,29 @@ func NewGoPool(a_go_num, a_cache_num uint32) *GoPool {
 func (gp *GoPool) Start() {
 	var i uint32 = 0
 	for i = 0; i < gp.coroutine_num; i++ {
+		gp.wg.Add(1)
 		go gp.run(i, gp.func_pool_slice[i])
 	}
 }
 
 func (gp *GoPool) run(index uint32, a_func_ch chan func()) {
+	defer gp.wg.Done()
 	for {
 		select {
 		case <-gp.done:
+			if atomic.LoadInt32(&gp.drain) == 1 {
+				for {
+					select {
+					case f := <-a_func_ch:
+						if f != nil {
+							f()
+						}
+					default:
+						slog.Warn("协程池关闭", zap.Any("index=", index))
+						return
+					}
+				}
+			}
 			slog.Warn("协程池关闭", zap.Any("index=", index))
 			return
 		case f := <-a_func_ch:
@@ -62,6 +80,32 @@ func (gp *GoPool) Stop() {
 		atomic.StoreInt32(&gp.state, 0)
 		close(gp.done)
 	})
+}
+
+func (gp *GoPool) StopAndDrain(timeout time.Duration) bool {
+	if gp == nil {
+		return true
+	}
+	gp.stopOnce.Do(func() {
+		atomic.StoreInt32(&gp.drain, 1)
+		atomic.StoreInt32(&gp.state, 0)
+		close(gp.done)
+	})
+	if timeout <= 0 {
+		gp.wg.Wait()
+		return true
+	}
+	done := make(chan struct{})
+	go func() {
+		gp.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 func (gp *GoPool) SendTask(a_shardingid uint64, a_func func()) bool {

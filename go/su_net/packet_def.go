@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	slog "go.local/su_log"
+	"sync"
 
 	"go.uber.org/zap"
 )
@@ -32,6 +33,32 @@ var (
 	ErrIncompletePacket = errors.New("incomplete packet")
 	ErrInvalidPacket    = errors.New("invalid packet")
 )
+
+func deleteAllSyncMap(m *sync.Map) {
+	if m == nil {
+		return
+	}
+	keys := make([]interface{}, 0)
+	m.Range(func(k, v interface{}) bool {
+		keys = append(keys, k)
+		return true
+	})
+	for _, key := range keys {
+		m.Delete(key)
+	}
+}
+
+func deleteSyncMapValue(m *sync.Map, key interface{}, value interface{}) bool {
+	if m == nil {
+		return false
+	}
+	current, ok := m.Load(key)
+	if !ok || current != value {
+		return false
+	}
+	m.Delete(key)
+	return true
+}
 
 type Ping struct {
 	SendTime uint64 //////发送时间

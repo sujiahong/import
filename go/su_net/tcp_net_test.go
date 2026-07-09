@@ -1,6 +1,8 @@
 package su_net
 
 import (
+	"go.local/my_util"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -130,6 +132,44 @@ func TestTcpClientHeartbeatStopsOnRemoteClose(t *testing.T) {
 	}
 }
 
+func TestTcpServerCloseDrainsQueuedPoolTasks(t *testing.T) {
+	server, err := CreateTcpServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("CreateTcpServer() error = %v", err)
+	}
+	server.pool.Stop()
+	server.pool = my_util.NewGoPool(1, 16)
+
+	block := make(chan struct{})
+	ran := make(chan struct{})
+	if ok := server.pool.SendTask(1, func() { <-block }); !ok {
+		t.Fatal("blocking task should be accepted")
+	}
+	if ok := server.pool.SendTask(1, func() { close(ran) }); !ok {
+		t.Fatal("queued task should be accepted")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- server.Close()
+	}()
+	close(block)
+
+	select {
+	case <-ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for queued task to run during Close drain")
+	}
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for server Close")
+	}
+}
+
 func TestTcpConnCloseClearsHeartbeat(t *testing.T) {
 	conn := newTcpConn(nil)
 	conn.PingPongMap.Store(uint64(1), 1)
@@ -143,5 +183,48 @@ func TestTcpConnCloseClearsHeartbeat(t *testing.T) {
 	})
 	if count != 0 {
 		t.Fatalf("heartbeat count = %d, want 0", count)
+	}
+}
+
+func TestTcpConnCheckPongAfterCloseDoesNotPing(t *testing.T) {
+	conn := newTcpConn(nil)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	conn.CheckPong()
+	count := 0
+	conn.PingPongMap.Range(func(k, v interface{}) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Fatalf("heartbeat count = %d, want 0", count)
+	}
+	if err := conn.Send(&DataProtocol{}); err == nil {
+		t.Fatal("Send() error = nil, want closed connection error")
+	}
+}
+
+func TestTcpConnPongDecrementsPendingPingCount(t *testing.T) {
+	conn := newTcpConn(nil)
+	conn.PingPongMap.Store(uint64(7), 1)
+	atomic.StoreInt32(&conn.pendingPings, 1)
+	data, err := PongEncode(Pong{SendTime: 8, PingTime: 7})
+	if err != nil {
+		t.Fatalf("PongEncode() error = %v", err)
+	}
+
+	handled, err := conn.handleControlPacket(&DataProtocol{
+		Head: Header{PackId: PONG, PackLen: HeadLength + uint32(len(data))},
+		Data: data,
+	})
+	if err != nil {
+		t.Fatalf("handleControlPacket() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
+		t.Fatalf("pendingPings = %d, want 0", got)
 	}
 }

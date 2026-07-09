@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,12 +22,14 @@ const defaultWSPath = "/ws"
 type WSHandler func(*WSConn, *DataProtocol)
 
 type WSConn struct {
-	conn        *websocket.Conn
-	recvData    []byte
-	writeMu     sync.Mutex
-	closeOnce   sync.Once
-	checkTimes  uint8
-	PingPongMap sync.Map
+	conn         *websocket.Conn
+	closed       int32
+	recvData     []byte
+	writeMu      sync.Mutex
+	closeOnce    sync.Once
+	checkTimes   uint8
+	pendingPings int32
+	PingPongMap  sync.Map
 }
 
 func newWSConn(conn *websocket.Conn) *WSConn {
@@ -45,11 +48,14 @@ func (wc *WSConn) Send(dp *DataProtocol) error {
 }
 
 func (wc *WSConn) SendBytes(bs []byte) error {
-	if wc == nil || wc.conn == nil {
+	if wc == nil {
 		return errors.New("websocket conn is nil")
 	}
 	wc.writeMu.Lock()
 	defer wc.writeMu.Unlock()
+	if atomic.LoadInt32(&wc.closed) == 1 || wc.conn == nil {
+		return errors.New("websocket conn is closed")
+	}
 	return wc.conn.WriteMessage(websocket.BinaryMessage, bs)
 }
 
@@ -59,7 +65,10 @@ func (wc *WSConn) Close() error {
 	}
 	var err error
 	wc.closeOnce.Do(func() {
+		atomic.StoreInt32(&wc.closed, 1)
 		wc.ClearHeartbeat()
+		wc.writeMu.Lock()
+		defer wc.writeMu.Unlock()
 		if wc.conn == nil {
 			return
 		}
@@ -72,10 +81,9 @@ func (wc *WSConn) ClearHeartbeat() {
 	if wc == nil {
 		return
 	}
-	wc.PingPongMap.Range(func(k, v interface{}) bool {
-		wc.PingPongMap.Delete(k)
-		return true
-	})
+	deleteAllSyncMap(&wc.PingPongMap)
+	atomic.StoreInt32(&wc.pendingPings, 0)
+	wc.checkTimes = 0
 }
 
 func (wc *WSConn) Ping() error {
@@ -86,6 +94,7 @@ func (wc *WSConn) Ping() error {
 		return err
 	}
 	wc.PingPongMap.Store(microTime, 1)
+	atomic.AddInt32(&wc.pendingPings, 1)
 	err = wc.Send(&DataProtocol{
 		Head: Header{
 			PackId:   PING,
@@ -95,21 +104,19 @@ func (wc *WSConn) Ping() error {
 		Data: data,
 	})
 	if err != nil {
-		wc.PingPongMap.Delete(microTime)
+		if _, ok := wc.PingPongMap.LoadAndDelete(microTime); ok {
+			atomic.AddInt32(&wc.pendingPings, -1)
+		}
 		return err
 	}
 	return nil
 }
 
 func (wc *WSConn) CheckPong() {
-	if wc == nil {
+	if wc == nil || atomic.LoadInt32(&wc.closed) == 1 {
 		return
 	}
-	count := 0
-	wc.PingPongMap.Range(func(k, v interface{}) bool {
-		count++
-		return true
-	})
+	count := atomic.LoadInt32(&wc.pendingPings)
 	if count == 0 {
 		wc.checkTimes = 0
 	} else {
@@ -211,7 +218,9 @@ func (wc *WSConn) handleControlPacket(dp *DataProtocol) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		wc.PingPongMap.Delete(pong.PingTime)
+		if _, ok := wc.PingPongMap.LoadAndDelete(pong.PingTime); ok {
+			atomic.AddInt32(&wc.pendingPings, -1)
+		}
 		return true, nil
 	default:
 		return false, nil
@@ -219,15 +228,16 @@ func (wc *WSConn) handleControlPacket(dp *DataProtocol) (bool, error) {
 }
 
 type WSServer struct {
-	Addr      string
-	Path      string
-	server    *http.Server
-	listener  net.Listener
-	handler   WSHandler
-	conns     sync.Map
-	pool      *my_util.GoPool
-	closeOnce sync.Once
-	upgrader  websocket.Upgrader
+	Addr       string
+	Path       string
+	server     *http.Server
+	listener   net.Listener
+	handler    WSHandler
+	conns      sync.Map
+	nextConnID uint64
+	pool       *my_util.GoPool
+	closeOnce  sync.Once
+	upgrader   websocket.Upgrader
 }
 
 func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
@@ -265,10 +275,12 @@ func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wsConn := newWSConn(conn)
-	key := r.RemoteAddr
+	key := atomic.AddUint64(&ws.nextConnID, 1)
 	ws.conns.Store(key, wsConn)
 	go func() {
-		defer ws.conns.Delete(key)
+		defer func() {
+			deleteSyncMapValue(&ws.conns, key, wsConn)
+		}()
 		wsConn.readLoop(func(conn *WSConn, dp *DataProtocol) {
 			if ws.handler == nil {
 				return
@@ -290,22 +302,26 @@ func (ws *WSServer) Close() error {
 	}
 	var err error
 	ws.closeOnce.Do(func() {
-		ws.conns.Range(func(k, v interface{}) bool {
-			if conn, ok := v.(*WSConn); ok {
-				conn.Close()
-			}
-			return true
-		})
-		if ws.server != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			err = ws.server.Shutdown(ctx)
-		}
 		if ws.listener != nil {
 			ws.listener.Close()
 		}
-		if ws.pool != nil {
-			ws.pool.Stop()
+		if ws.server != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			err = ws.server.Shutdown(ctx)
+			cancel()
+		}
+		conns := make([]*WSConn, 0)
+		ws.conns.Range(func(k, v interface{}) bool {
+			if conn, ok := v.(*WSConn); ok {
+				conns = append(conns, conn)
+			}
+			return true
+		})
+		for _, conn := range conns {
+			conn.Close()
+		}
+		if ws.pool != nil && !ws.pool.StopAndDrain(DEFAULT_CLOSE_TIMEOUT) {
+			slog.Warn("websocket server pool drain timeout")
 		}
 	})
 	return err

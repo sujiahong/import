@@ -2,6 +2,7 @@ package su_net
 
 import (
 	"go.local/my_util"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -131,6 +132,85 @@ func TestWSClientHeartbeatStopsOnRemoteClose(t *testing.T) {
 	}
 }
 
+func TestWSServerCloseStopsAcceptingAndClosesExistingConns(t *testing.T) {
+	server, err := CreateWSServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("CreateWSServer() error = %v", err)
+	}
+
+	client, err := CreateWSClient(server.Addr)
+	if err != nil {
+		t.Fatalf("CreateWSClient() error = %v", err)
+	}
+	defer client.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.ConnCount() == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if server.ConnCount() != 1 {
+		t.Fatalf("server ConnCount() = %d, want 1", server.ConnCount())
+	}
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("server Close() error = %v", err)
+	}
+	if nextClient, err := CreateWSClient(server.Addr); err == nil {
+		nextClient.Close()
+		t.Fatal("CreateWSClient() after server Close() error = nil, want failure")
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.ConnCount() == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("server ConnCount() = %d, want 0 after Close", server.ConnCount())
+}
+
+func TestWSServerCloseDrainsQueuedPoolTasks(t *testing.T) {
+	server, err := CreateWSServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("CreateWSServer() error = %v", err)
+	}
+	server.pool.Stop()
+	server.pool = my_util.NewGoPool(1, 16)
+
+	block := make(chan struct{})
+	ran := make(chan struct{})
+	if ok := server.pool.SendTask(1, func() { <-block }); !ok {
+		t.Fatal("blocking task should be accepted")
+	}
+	if ok := server.pool.SendTask(1, func() { close(ran) }); !ok {
+		t.Fatal("queued task should be accepted")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- server.Close()
+	}()
+	close(block)
+
+	select {
+	case <-ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for queued task to run during Close drain")
+	}
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for server Close")
+	}
+}
+
 func TestWSConnCloseClearsHeartbeat(t *testing.T) {
 	conn := newWSConn(nil)
 	conn.PingPongMap.Store(uint64(1), 1)
@@ -144,6 +224,61 @@ func TestWSConnCloseClearsHeartbeat(t *testing.T) {
 	})
 	if count != 0 {
 		t.Fatalf("heartbeat count = %d, want 0", count)
+	}
+}
+
+func TestWSConnCheckPongAfterCloseDoesNotPing(t *testing.T) {
+	conn := newWSConn(nil)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	conn.CheckPong()
+	count := 0
+	conn.PingPongMap.Range(func(k, v interface{}) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Fatalf("heartbeat count = %d, want 0", count)
+	}
+	if err := conn.Send(&DataProtocol{}); err == nil {
+		t.Fatal("Send() error = nil, want closed connection error")
+	}
+}
+
+func TestWSConnPongDecrementsPendingPingCount(t *testing.T) {
+	conn := newWSConn(nil)
+	conn.PingPongMap.Store(uint64(7), 1)
+	atomic.StoreInt32(&conn.pendingPings, 1)
+	data, err := PongEncode(Pong{SendTime: 8, PingTime: 7})
+	if err != nil {
+		t.Fatalf("PongEncode() error = %v", err)
+	}
+
+	handled, err := conn.handleControlPacket(&DataProtocol{
+		Head: Header{PackId: PONG, PackLen: HeadLength + uint32(len(data))},
+		Data: data,
+	})
+	if err != nil {
+		t.Fatalf("handleControlPacket() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
+		t.Fatalf("pendingPings = %d, want 0", got)
+	}
+}
+
+func TestWSServerConnMapUsesUniqueInternalIDs(t *testing.T) {
+	ws := &WSServer{}
+	firstID := atomic.AddUint64(&ws.nextConnID, 1)
+	secondID := atomic.AddUint64(&ws.nextConnID, 1)
+	ws.conns.Store(firstID, newWSConn(nil))
+	ws.conns.Store(secondID, newWSConn(nil))
+
+	if got := ws.ConnCount(); got != 2 {
+		t.Fatalf("ConnCount() = %d, want 2", got)
 	}
 }
 

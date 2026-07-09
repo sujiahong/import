@@ -20,6 +20,7 @@ const (
 	PING_PONG_INTERVAL      uint32 = 19
 	RECONNECT_INTERVAL      uint32 = 5
 	DEFAULT_REQUEST_TIMEOUT        = 30 * time.Second
+	DEFAULT_CLOSE_TIMEOUT          = 3 * time.Second
 )
 
 type HandleFuncType func(*GNetConn, uint64, proto.Message, proto.Message)
@@ -87,9 +88,12 @@ type GTcpServer struct {
 	async                   bool // 是否异步处理
 	multicore               bool
 	dispatchMode            GNetDispatchMode
+	closeOnce               sync.Once
 	connMap                 sync.Map /////ip - 连接映射
 	regHandlerMap           sync.Map /////注册处理映射
 	rawHandler              GNetRawHandler
+	closeErr                error
+	closeTimeout            time.Duration
 }
 
 func (ts *GTcpServer) OnBoot(eng gnet.Engine) (action gnet.Action) {
@@ -140,7 +144,6 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol) {
 		slog.Error("Pong 封包失败", zap.Error(err))
 		return
 	}
-	rs_dp.Head.PackLen = uint32(24 + len(rs_dp.Data))
 	rs_bytes, err := Encode(&rs_dp)
 	if err != nil {
 		slog.Error("rs_dp 封包失败", zap.Error(err))
@@ -236,15 +239,25 @@ func (ts *GTcpServer) handleServerPacket(gconn *GNetConn, dp *DataProtocol) {
 }
 
 func (ts *GTcpServer) Close() {
-	atomic.StoreInt32(&ts.Stat, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := gnet.Stop(ctx, ts.protoAddr); err != nil {
-		slog.Error("gnet server stop failed", zap.String("addr", ts.protoAddr), zap.Error(err))
+	if ts == nil {
+		return
 	}
-	if ts.pool != nil {
-		ts.pool.Stop()
-	}
+	ts.closeOnce.Do(func() {
+		atomic.StoreInt32(&ts.Stat, 0)
+		timeout := ts.closeTimeout
+		if timeout <= 0 {
+			timeout = DEFAULT_CLOSE_TIMEOUT
+		}
+		if ts.pool != nil && !ts.pool.StopAndDrain(timeout) {
+			slog.Warn("gnet server pool drain timeout")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		if err := gnet.Stop(ctx, ts.protoAddr); err != nil {
+			ts.closeErr = err
+			slog.Error("gnet server stop failed", zap.String("addr", ts.protoAddr), zap.Error(err))
+		}
+		cancel()
+	})
 }
 
 func (ts *GTcpServer) State() int32 {
@@ -291,7 +304,7 @@ func (ts *GTcpServer) Run() {
 }
 
 func CreateGNetServer(a_addr string) *GTcpServer {
-	ts := &GTcpServer{async: true, multicore: true, dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1}
+	ts := &GTcpServer{async: true, multicore: true, dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT}
 	ts.pool = my_util.NewGoPool(16, 1024)
 	return ts
 }
@@ -320,6 +333,13 @@ func (ts *GTcpServer) SetDispatchMode(mode GNetDispatchMode) {
 	ts.dispatchMode = mode
 }
 
+func (ts *GTcpServer) SetCloseTimeout(timeout time.Duration) {
+	if ts == nil {
+		return
+	}
+	ts.closeTimeout = timeout
+}
+
 ///////////////////////////////////客户端///////////////////////////////////////
 
 type GTcpClient struct {
@@ -340,6 +360,8 @@ type GTcpClient struct {
 	pendingEnabled          int32
 	requestTimeout          time.Duration
 	sendSeq                 uint64
+	stopOnce                sync.Once
+	stopErr                 error
 }
 
 func (tc *GTcpClient) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
@@ -420,9 +442,8 @@ func pongHandler(gnc *GNetConn, rs_dp *DataProtocol) {
 	}
 	slog.Info("pong心跳", zap.String("remote addr", gnc.RemoteAddr),
 		zap.Uint64("pong time", pong.SendTime), zap.Uint64("ping time", pong.PingTime))
-	_, ok := gnc.PingPongMap.Load(pong.PingTime)
-	if ok {
-		gnc.PingPongMap.Delete(pong.PingTime)
+	if _, ok := gnc.PingPongMap.LoadAndDelete(pong.PingTime); ok {
+		atomic.AddInt32(&gnc.pendingPings, -1)
 	} else {
 		slog.Error("PingPongMap没有 PingTime key", zap.Uint64("ping time", pong.PingTime))
 	}
@@ -546,7 +567,6 @@ func (tc *GTcpClient) sendProto(a_rq_id, a_rs_id uint32, a_msg proto.Message, tr
 			return err
 		}
 		rq_dp.Data = bs
-		rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
 		rq_bytes, err := Encode(&rq_dp)
 		if err != nil {
 			slog.Error("rq_dp 封包失败", zap.Error(err))
@@ -627,24 +647,25 @@ func (tc *GTcpClient) cleanupExpiredPendingRequests() {
 		timeout = DEFAULT_REQUEST_TIMEOUT
 	}
 	now := time.Now()
+	expiredKeys := make([]interface{}, 0)
 	tc.pendingRQMap.Range(func(k, v interface{}) bool {
 		pending, ok := v.(*pendingGNetRequest)
 		if !ok || now.Sub(pending.createdAt) >= timeout {
-			tc.pendingRQMap.Delete(k)
-			slog.Warn("gnet pending request expired", zap.Any("route_id", k))
+			expiredKeys = append(expiredKeys, k)
 		}
 		return true
 	})
+	for _, key := range expiredKeys {
+		tc.pendingRQMap.Delete(key)
+		slog.Warn("gnet pending request expired", zap.Any("route_id", key))
+	}
 }
 
 func (tc *GTcpClient) clearPendingRequests() {
 	if tc == nil {
 		return
 	}
-	tc.pendingRQMap.Range(func(k, v interface{}) bool {
-		tc.pendingRQMap.Delete(k)
-		return true
-	})
+	deleteAllSyncMap(&tc.pendingRQMap)
 }
 
 func (tc *GTcpClient) pendingRequestsEnabled() bool {
@@ -664,14 +685,21 @@ func (tc *GTcpClient) SetPendingRequestsEnabled(enabled bool) {
 }
 
 func (tc *GTcpClient) Stop() (err error) {
-	atomic.StoreInt32(&tc.state, 0)
-	tc.clearPendingRequests()
-	err = tc.Client.Stop()
-	if tc.pool != nil {
-		tc.pool.Stop()
+	if tc == nil {
+		return nil
 	}
-	slog.Info("client stop ", zap.Error(err)) /////关闭客户端
-	return
+	tc.stopOnce.Do(func() {
+		atomic.StoreInt32(&tc.state, 0)
+		tc.clearPendingRequests()
+		if tc.Client != nil {
+			tc.stopErr = tc.Client.Stop()
+		}
+		if tc.pool != nil {
+			tc.pool.Stop()
+		}
+		slog.Info("client stop ", zap.Error(tc.stopErr)) /////关闭客户端
+	})
+	return tc.stopErr
 }
 
 func (tc *GTcpClient) State() int32 {

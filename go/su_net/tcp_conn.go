@@ -4,22 +4,24 @@ import (
 	"errors"
 	slog "go.local/su_log"
 	"sync"
-	// "sync/atomic"
+	"sync/atomic"
 	//"go.local/my_util"
+	"time"
+
 	"github.com/panjf2000/gnet/v2"
 	"go.uber.org/zap"
-	"time"
 )
 
 // //gnet网络连接结构
 type GNetConn struct {
-	Gconn       gnet.Conn
-	RemoteAddr  string
-	LocalAddr   string
-	state       int32    /////是否使用 1 使用  0 未使用
-	recvData    []byte   ////网络数据缓存
-	checkTimes  uint8    /// 检测心跳次数
-	PingPongMap sync.Map /////注册处理映射
+	Gconn        gnet.Conn
+	RemoteAddr   string
+	LocalAddr    string
+	state        int32  /////是否使用 1 使用  0 未使用
+	recvData     []byte ////网络数据缓存
+	checkTimes   uint8  /// 检测心跳次数
+	pendingPings int32
+	PingPongMap  sync.Map /////注册处理映射
 }
 
 func NewGnetConn(c gnet.Conn) *GNetConn {
@@ -97,26 +99,24 @@ func (gnc *GNetConn) Ping() error {
 		slog.Error("Ping 封包失败", zap.Error(err))
 		return err
 	}
-	rq_dp.Head.PackLen = uint32(24 + len(rq_dp.Data))
 	rq_bytes, err := Encode(&rq_dp)
 	if err != nil {
 		slog.Error("rq_dp 封包失败", zap.Error(err))
 		return err
 	}
 	gnc.PingPongMap.Store(ping.SendTime, 1)
+	atomic.AddInt32(&gnc.pendingPings, 1)
 	if err := gnc.Send(rq_bytes); err != nil {
-		gnc.PingPongMap.Delete(ping.SendTime)
+		if _, ok := gnc.PingPongMap.LoadAndDelete(ping.SendTime); ok {
+			atomic.AddInt32(&gnc.pendingPings, -1)
+		}
 		return err
 	}
 	return nil
 }
 
 func (gnc *GNetConn) CheckPong() {
-	var count uint8 = 0
-	gnc.PingPongMap.Range(func(k, v interface{}) bool {
-		count++
-		return true
-	})
+	count := atomic.LoadInt32(&gnc.pendingPings)
 	if count == 0 {
 		gnc.checkTimes = 0
 	} else {
@@ -149,8 +149,7 @@ func (gnc *GNetConn) ClearHeartbeat() {
 	if gnc == nil {
 		return
 	}
-	gnc.PingPongMap.Range(func(k, v interface{}) bool {
-		gnc.PingPongMap.Delete(k)
-		return true
-	})
+	deleteAllSyncMap(&gnc.PingPongMap)
+	atomic.StoreInt32(&gnc.pendingPings, 0)
+	gnc.checkTimes = 0
 }

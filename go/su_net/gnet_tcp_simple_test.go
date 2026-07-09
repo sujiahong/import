@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -218,6 +219,25 @@ func TestGNetClientDisablePendingClearsRequests(t *testing.T) {
 	}
 }
 
+func TestGNetPongDecrementsPendingPingCount(t *testing.T) {
+	conn := NewGnetConn(nil)
+	conn.PingPongMap.Store(uint64(7), 1)
+	atomic.StoreInt32(&conn.pendingPings, 1)
+	data, err := PongEncode(Pong{SendTime: 8, PingTime: 7})
+	if err != nil {
+		t.Fatalf("PongEncode() error = %v", err)
+	}
+
+	pongHandler(conn, &DataProtocol{
+		Head: Header{PackId: PONG, PackLen: HeadLength + uint32(len(data))},
+		Data: data,
+	})
+
+	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
+		t.Fatalf("pendingPings = %d, want 0", got)
+	}
+}
+
 func TestGNetClientRemoteCloseClearsPendingRequests(t *testing.T) {
 	port := freeTCPPort(t)
 	server := CreateServer(port)
@@ -243,15 +263,77 @@ func TestGNetClientRemoteCloseClearsPendingRequests(t *testing.T) {
 		return gnetPendingCount(client) == 1
 	})
 
+	serverConns := make([]*GNetConn, 0)
 	server.connMap.Range(func(k, v interface{}) bool {
-		v.(*GNetConn).Close()
+		serverConns = append(serverConns, v.(*GNetConn))
 		return true
 	})
+	for _, conn := range serverConns {
+		conn.Close()
+	}
 
 	waitForCondition(t, "client remote close", 3*time.Second, func() bool {
 		return client.ConnCount() == 0
 	})
 	if got := gnetPendingCount(client); got != 0 {
 		t.Fatalf("pending count = %d, want 0 after remote close", got)
+	}
+}
+
+func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
+	port := freeTCPPort(t)
+	server := CreateServer(port)
+	go server.Run()
+	defer server.Close()
+	waitForState(t, "server", &server.Stat, 2)
+
+	client := CreateClient("127.0.0.1:"+port, 1)
+	if client == nil {
+		t.Fatal("CreateClient() returned nil")
+	}
+	waitForState(t, "client", &client.state, 2)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := client.Stop(); err != nil {
+				t.Errorf("Stop() error = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := client.State(); got != 0 {
+		t.Fatalf("client state = %d, want 0", got)
+	}
+	waitForCondition(t, "client connections closed after Stop", time.Second, func() bool {
+		return client.ConnCount() == 0
+	})
+	if got := atomic.LoadInt32(&client.reconnectState); got != 0 {
+		t.Fatalf("reconnectState = %d, want 0 after Stop", got)
+	}
+}
+
+func TestGNetServerCloseIsConcurrentSafe(t *testing.T) {
+	port := freeTCPPort(t)
+	server := CreateServer(port)
+	server.SetCloseTimeout(time.Second)
+	go server.Run()
+	waitForState(t, "server", &server.Stat, 2)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			server.Close()
+		}()
+	}
+	wg.Wait()
+
+	if got := server.State(); got != 0 {
+		t.Fatalf("server state = %d, want 0", got)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,12 +17,14 @@ import (
 type TcpHandler func(*TcpConn, *DataProtocol)
 
 type TcpConn struct {
-	conn        *net.TCPConn
-	recvData    []byte
-	writeMu     sync.Mutex
-	closeOnce   sync.Once
-	checkTimes  uint8
-	PingPongMap sync.Map
+	conn         *net.TCPConn
+	closed       int32
+	recvData     []byte
+	writeMu      sync.Mutex
+	closeOnce    sync.Once
+	checkTimes   uint8
+	pendingPings int32
+	PingPongMap  sync.Map
 }
 
 func newTcpConn(conn *net.TCPConn) *TcpConn {
@@ -54,11 +57,14 @@ func (tc *TcpConn) Send(dp *DataProtocol) error {
 }
 
 func (tc *TcpConn) SendBytes(bs []byte) error {
-	if tc == nil || tc.conn == nil {
+	if tc == nil {
 		return errors.New("tcp conn is nil")
 	}
 	tc.writeMu.Lock()
 	defer tc.writeMu.Unlock()
+	if atomic.LoadInt32(&tc.closed) == 1 || tc.conn == nil {
+		return errors.New("tcp conn is closed")
+	}
 	for len(bs) > 0 {
 		n, err := tc.conn.Write(bs)
 		if err != nil {
@@ -78,7 +84,10 @@ func (tc *TcpConn) Close() error {
 	}
 	var err error
 	tc.closeOnce.Do(func() {
+		atomic.StoreInt32(&tc.closed, 1)
 		tc.ClearHeartbeat()
+		tc.writeMu.Lock()
+		defer tc.writeMu.Unlock()
 		if tc.conn == nil {
 			return
 		}
@@ -91,10 +100,9 @@ func (tc *TcpConn) ClearHeartbeat() {
 	if tc == nil {
 		return
 	}
-	tc.PingPongMap.Range(func(k, v interface{}) bool {
-		tc.PingPongMap.Delete(k)
-		return true
-	})
+	deleteAllSyncMap(&tc.PingPongMap)
+	atomic.StoreInt32(&tc.pendingPings, 0)
+	tc.checkTimes = 0
 }
 
 func (tc *TcpConn) Ping() error {
@@ -105,6 +113,7 @@ func (tc *TcpConn) Ping() error {
 		return err
 	}
 	tc.PingPongMap.Store(microTime, 1)
+	atomic.AddInt32(&tc.pendingPings, 1)
 	err = tc.Send(&DataProtocol{
 		Head: Header{
 			PackId:   PING,
@@ -114,21 +123,19 @@ func (tc *TcpConn) Ping() error {
 		Data: data,
 	})
 	if err != nil {
-		tc.PingPongMap.Delete(microTime)
+		if _, ok := tc.PingPongMap.LoadAndDelete(microTime); ok {
+			atomic.AddInt32(&tc.pendingPings, -1)
+		}
 		return err
 	}
 	return nil
 }
 
 func (tc *TcpConn) CheckPong() {
-	if tc == nil {
+	if tc == nil || atomic.LoadInt32(&tc.closed) == 1 {
 		return
 	}
-	count := 0
-	tc.PingPongMap.Range(func(k, v interface{}) bool {
-		count++
-		return true
-	})
+	count := atomic.LoadInt32(&tc.pendingPings)
 	if count == 0 {
 		tc.checkTimes = 0
 	} else {
@@ -156,7 +163,8 @@ func (tc *TcpConn) readLoop(handler TcpHandler) {
 			return
 		}
 		if n == 0 {
-			continue
+			slog.Warn("tcp read returned zero bytes without error")
+			return
 		}
 		if err := tc.recv(buf[:n], handler); err != nil {
 			slog.Error("tcp recv failed", zap.Error(err))
@@ -224,7 +232,9 @@ func (tc *TcpConn) handleControlPacket(dp *DataProtocol) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		tc.PingPongMap.Delete(pong.PingTime)
+		if _, ok := tc.PingPongMap.LoadAndDelete(pong.PingTime); ok {
+			atomic.AddInt32(&tc.pendingPings, -1)
+		}
 		return true, nil
 	default:
 		return false, nil
@@ -271,9 +281,12 @@ func (ts *TcpServer) acceptLoop() {
 			return
 		}
 		tcpConn := newTcpConn(conn)
-		ts.conns.Store(conn.RemoteAddr().String(), tcpConn)
+		key := conn.RemoteAddr().String()
+		ts.conns.Store(key, tcpConn)
 		go func() {
-			defer ts.conns.Delete(conn.RemoteAddr().String())
+			defer func() {
+				deleteSyncMapValue(&ts.conns, key, tcpConn)
+			}()
 			tcpConn.readLoop(func(conn *TcpConn, dp *DataProtocol) {
 				if ts.handler == nil {
 					return
@@ -296,14 +309,18 @@ func (ts *TcpServer) Close() error {
 	var err error
 	ts.closeOnce.Do(func() {
 		err = ts.listener.Close()
+		conns := make([]*TcpConn, 0)
 		ts.conns.Range(func(k, v interface{}) bool {
 			if conn, ok := v.(*TcpConn); ok {
-				conn.Close()
+				conns = append(conns, conn)
 			}
 			return true
 		})
-		if ts.pool != nil {
-			ts.pool.Stop()
+		for _, conn := range conns {
+			conn.Close()
+		}
+		if ts.pool != nil && !ts.pool.StopAndDrain(DEFAULT_CLOSE_TIMEOUT) {
+			slog.Warn("tcp server pool drain timeout")
 		}
 	})
 	return err
