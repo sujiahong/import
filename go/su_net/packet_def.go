@@ -179,8 +179,3 @@ func PongDecode(a_data []byte, a_pack_len uint32) (pong Pong, err error) {
 	pong.PingTime = binary.BigEndian.Uint64(a_data[8:16])
 	return
 }
-
-// //轮询路由包
-func Route() {
-
-}

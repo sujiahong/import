@@ -22,7 +22,7 @@ type TcpConn struct {
 	recvData     []byte
 	writeMu      sync.Mutex
 	closeOnce    sync.Once
-	checkTimes   uint8
+	checkTimes   int32
 	pendingPings int32
 	PingPongMap  sync.Map
 }
@@ -102,7 +102,7 @@ func (tc *TcpConn) ClearHeartbeat() {
 	}
 	deleteAllSyncMap(&tc.PingPongMap)
 	atomic.StoreInt32(&tc.pendingPings, 0)
-	tc.checkTimes = 0
+	atomic.StoreInt32(&tc.checkTimes, 0)
 }
 
 func (tc *TcpConn) Ping() error {
@@ -136,17 +136,18 @@ func (tc *TcpConn) CheckPong() {
 		return
 	}
 	count := atomic.LoadInt32(&tc.pendingPings)
+	var checkTimes int32
 	if count == 0 {
-		tc.checkTimes = 0
+		atomic.StoreInt32(&tc.checkTimes, 0)
 	} else {
-		tc.checkTimes++
+		checkTimes = atomic.AddInt32(&tc.checkTimes, 1)
 	}
 	if err := tc.Ping(); err != nil {
 		slog.Error("tcp ping failed", zap.Error(err))
 		tc.Close()
 		return
 	}
-	if count > 0 && tc.checkTimes >= 2 {
+	if count > 0 && checkTimes >= 2 {
 		tc.Close()
 	}
 }
@@ -190,6 +191,9 @@ func (tc *TcpConn) recv(frame []byte, handler TcpHandler) error {
 		tc.recvData = remain
 		handled, err := tc.handleControlPacket(&dp)
 		if err != nil {
+			if atomic.LoadInt32(&tc.closed) == 1 {
+				return nil
+			}
 			return err
 		}
 		if handled {
@@ -245,7 +249,8 @@ type TcpServer struct {
 	Addr      string
 	listener  *net.TCPListener
 	handler   TcpHandler
-	conns     sync.Map
+	conns     map[string]*TcpConn
+	connsMu   sync.Mutex
 	closeOnce sync.Once
 	pool      *my_util.GoPool
 }
@@ -262,6 +267,7 @@ func CreateTcpServer(addr string, handlers ...TcpHandler) (*TcpServer, error) {
 	server := &TcpServer{
 		Addr:     listener.Addr().String(),
 		listener: listener,
+		conns:    make(map[string]*TcpConn),
 		pool:     my_util.NewGoPool(16, 1024),
 	}
 	if len(handlers) > 0 {
@@ -282,10 +288,16 @@ func (ts *TcpServer) acceptLoop() {
 		}
 		tcpConn := newTcpConn(conn)
 		key := conn.RemoteAddr().String()
-		ts.conns.Store(key, tcpConn)
+		ts.connsMu.Lock()
+		ts.conns[key] = tcpConn
+		ts.connsMu.Unlock()
 		go func() {
 			defer func() {
-				deleteSyncMapValue(&ts.conns, key, tcpConn)
+				ts.connsMu.Lock()
+				if ts.conns[key] == tcpConn {
+					delete(ts.conns, key)
+				}
+				ts.connsMu.Unlock()
 			}()
 			tcpConn.readLoop(func(conn *TcpConn, dp *DataProtocol) {
 				if ts.handler == nil {
@@ -310,12 +322,11 @@ func (ts *TcpServer) Close() error {
 	ts.closeOnce.Do(func() {
 		err = ts.listener.Close()
 		conns := make([]*TcpConn, 0)
-		ts.conns.Range(func(k, v interface{}) bool {
-			if conn, ok := v.(*TcpConn); ok {
-				conns = append(conns, conn)
-			}
-			return true
-		})
+		ts.connsMu.Lock()
+		for _, conn := range ts.conns {
+			conns = append(conns, conn)
+		}
+		ts.connsMu.Unlock()
 		for _, conn := range conns {
 			conn.Close()
 		}
@@ -330,12 +341,9 @@ func (ts *TcpServer) ConnCount() int {
 	if ts == nil {
 		return 0
 	}
-	count := 0
-	ts.conns.Range(func(k, v interface{}) bool {
-		count++
-		return true
-	})
-	return count
+	ts.connsMu.Lock()
+	defer ts.connsMu.Unlock()
+	return len(ts.conns)
 }
 
 type TcpClient struct {

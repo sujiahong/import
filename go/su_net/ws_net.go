@@ -27,7 +27,7 @@ type WSConn struct {
 	recvData     []byte
 	writeMu      sync.Mutex
 	closeOnce    sync.Once
-	checkTimes   uint8
+	checkTimes   int32
 	pendingPings int32
 	PingPongMap  sync.Map
 }
@@ -83,7 +83,7 @@ func (wc *WSConn) ClearHeartbeat() {
 	}
 	deleteAllSyncMap(&wc.PingPongMap)
 	atomic.StoreInt32(&wc.pendingPings, 0)
-	wc.checkTimes = 0
+	atomic.StoreInt32(&wc.checkTimes, 0)
 }
 
 func (wc *WSConn) Ping() error {
@@ -117,17 +117,18 @@ func (wc *WSConn) CheckPong() {
 		return
 	}
 	count := atomic.LoadInt32(&wc.pendingPings)
+	var checkTimes int32
 	if count == 0 {
-		wc.checkTimes = 0
+		atomic.StoreInt32(&wc.checkTimes, 0)
 	} else {
-		wc.checkTimes++
+		checkTimes = atomic.AddInt32(&wc.checkTimes, 1)
 	}
 	if err := wc.Ping(); err != nil {
 		slog.Error("websocket ping failed", zap.Error(err))
 		wc.Close()
 		return
 	}
-	if count > 0 && wc.checkTimes >= 2 {
+	if count > 0 && checkTimes >= 2 {
 		wc.Close()
 	}
 }
@@ -176,6 +177,9 @@ func (wc *WSConn) recv(frame []byte, handler WSHandler) error {
 		}
 		handled, err := wc.handleControlPacket(&dp)
 		if err != nil {
+			if atomic.LoadInt32(&wc.closed) == 1 {
+				return nil
+			}
 			return err
 		}
 		if handled {
@@ -233,7 +237,8 @@ type WSServer struct {
 	server     *http.Server
 	listener   net.Listener
 	handler    WSHandler
-	conns      sync.Map
+	conns      map[uint64]*WSConn
+	connsMu    sync.Mutex
 	nextConnID uint64
 	pool       *my_util.GoPool
 	closeOnce  sync.Once
@@ -249,6 +254,7 @@ func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
 		Addr:     listener.Addr().String(),
 		Path:     defaultWSPath,
 		listener: listener,
+		conns:    make(map[uint64]*WSConn),
 		pool:     my_util.NewGoPool(16, 1024),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -276,10 +282,16 @@ func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	wsConn := newWSConn(conn)
 	key := atomic.AddUint64(&ws.nextConnID, 1)
-	ws.conns.Store(key, wsConn)
+	ws.connsMu.Lock()
+	ws.conns[key] = wsConn
+	ws.connsMu.Unlock()
 	go func() {
 		defer func() {
-			deleteSyncMapValue(&ws.conns, key, wsConn)
+			ws.connsMu.Lock()
+			if ws.conns[key] == wsConn {
+				delete(ws.conns, key)
+			}
+			ws.connsMu.Unlock()
 		}()
 		wsConn.readLoop(func(conn *WSConn, dp *DataProtocol) {
 			if ws.handler == nil {
@@ -311,12 +323,11 @@ func (ws *WSServer) Close() error {
 			cancel()
 		}
 		conns := make([]*WSConn, 0)
-		ws.conns.Range(func(k, v interface{}) bool {
-			if conn, ok := v.(*WSConn); ok {
-				conns = append(conns, conn)
-			}
-			return true
-		})
+		ws.connsMu.Lock()
+		for _, conn := range ws.conns {
+			conns = append(conns, conn)
+		}
+		ws.connsMu.Unlock()
 		for _, conn := range conns {
 			conn.Close()
 		}
@@ -331,12 +342,9 @@ func (ws *WSServer) ConnCount() int {
 	if ws == nil {
 		return 0
 	}
-	count := 0
-	ws.conns.Range(func(k, v interface{}) bool {
-		count++
-		return true
-	})
-	return count
+	ws.connsMu.Lock()
+	defer ws.connsMu.Unlock()
+	return len(ws.conns)
 }
 
 type WSClient struct {

@@ -17,19 +17,16 @@ type GNetConn struct {
 	Gconn        gnet.Conn
 	RemoteAddr   string
 	LocalAddr    string
-	state        int32  /////是否使用 1 使用  0 未使用
 	recvData     []byte ////网络数据缓存
-	checkTimes   uint8  /// 检测心跳次数
+	checkTimes   int32  /// 检测心跳次数
 	pendingPings int32
 	PingPongMap  sync.Map /////注册处理映射
 }
 
 func NewGnetConn(c gnet.Conn) *GNetConn {
 	gnc := &GNetConn{
-		Gconn:      c,
-		recvData:   make([]byte, 0, 4096),
-		state:      0,
-		checkTimes: 0,
+		Gconn:    c,
+		recvData: make([]byte, 0, 4096),
 	}
 	if c != nil {
 		gnc.RemoteAddr = c.RemoteAddr().String()
@@ -117,18 +114,19 @@ func (gnc *GNetConn) Ping() error {
 
 func (gnc *GNetConn) CheckPong() {
 	count := atomic.LoadInt32(&gnc.pendingPings)
+	var checkTimes int32
 	if count == 0 {
-		gnc.checkTimes = 0
+		atomic.StoreInt32(&gnc.checkTimes, 0)
 	} else {
-		gnc.checkTimes++
+		checkTimes = atomic.AddInt32(&gnc.checkTimes, 1)
 	}
-	slog.Info("检测", zap.Any("gnc.checkTimes: ", gnc.checkTimes), zap.Any("count: ", count))
+	slog.Info("检测", zap.Int32("gnc.checkTimes", atomic.LoadInt32(&gnc.checkTimes)), zap.Int32("count", count))
 	if err := gnc.Ping(); err != nil {
 		slog.Error("gnet ping failed", zap.Error(err))
 		gnc.Close()
 		return
 	}
-	if count > 0 && gnc.checkTimes >= 2 {
+	if count > 0 && checkTimes >= 2 {
 		/////断开连接,重连
 		gnc.Close()
 	}
@@ -151,5 +149,5 @@ func (gnc *GNetConn) ClearHeartbeat() {
 	}
 	deleteAllSyncMap(&gnc.PingPongMap)
 	atomic.StoreInt32(&gnc.pendingPings, 0)
-	gnc.checkTimes = 0
+	atomic.StoreInt32(&gnc.checkTimes, 0)
 }

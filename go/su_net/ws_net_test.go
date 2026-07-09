@@ -270,12 +270,35 @@ func TestWSConnPongDecrementsPendingPingCount(t *testing.T) {
 	}
 }
 
+func TestWSConnRecvControlPacketAfterCloseReturnsNil(t *testing.T) {
+	conn := newWSConn(nil)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	pingBytes, err := PingEncode(Ping{SendTime: 1})
+	if err != nil {
+		t.Fatalf("PingEncode() error = %v", err)
+	}
+	packet, err := Encode(&DataProtocol{
+		Head: Header{PackId: PING, RouteId: 1, HeadUuid: 1},
+		Data: pingBytes,
+	})
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	if err := conn.recv(packet, nil); err != nil {
+		t.Fatalf("recv() error = %v, want nil during close", err)
+	}
+}
+
 func TestWSServerConnMapUsesUniqueInternalIDs(t *testing.T) {
-	ws := &WSServer{}
+	ws := &WSServer{conns: make(map[uint64]*WSConn)}
 	firstID := atomic.AddUint64(&ws.nextConnID, 1)
 	secondID := atomic.AddUint64(&ws.nextConnID, 1)
-	ws.conns.Store(firstID, newWSConn(nil))
-	ws.conns.Store(secondID, newWSConn(nil))
+	ws.connsMu.Lock()
+	ws.conns[firstID] = newWSConn(nil)
+	ws.conns[secondID] = newWSConn(nil)
+	ws.connsMu.Unlock()
 
 	if got := ws.ConnCount(); got != 2 {
 		t.Fatalf("ConnCount() = %d, want 2", got)

@@ -71,14 +71,6 @@ func newProtoFromType(t reflect.Type) proto.Message {
 	return msg
 }
 
-func newProtoMessage(template proto.Message) (proto.Message, error) {
-	t, err := newProtoType(template)
-	if err != nil {
-		return nil, err
-	}
-	return newProtoFromType(t), nil
-}
-
 type GTcpServer struct {
 	gnet.BuiltinEventEngine                 ////匿名字段   事件服务
 	pool                    *my_util.GoPool ///协程池

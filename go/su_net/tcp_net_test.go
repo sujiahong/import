@@ -170,6 +170,31 @@ func TestTcpServerCloseDrainsQueuedPoolTasks(t *testing.T) {
 	}
 }
 
+func TestTcpServerConditionalDeleteDoesNotRemoveReplacedConn(t *testing.T) {
+	server := &TcpServer{conns: make(map[string]*TcpConn)}
+	key := "127.0.0.1:12345"
+	oldConn := &TcpConn{}
+	newConn := &TcpConn{}
+
+	server.connsMu.Lock()
+	server.conns[key] = oldConn
+	server.conns[key] = newConn
+	if server.conns[key] == oldConn {
+		delete(server.conns, key)
+	}
+	server.connsMu.Unlock()
+
+	server.connsMu.Lock()
+	current, ok := server.conns[key]
+	server.connsMu.Unlock()
+	if !ok {
+		t.Fatal("connection key was deleted")
+	}
+	if current != newConn {
+		t.Fatalf("current conn = %p, want %p", current, newConn)
+	}
+}
+
 func TestTcpConnCloseClearsHeartbeat(t *testing.T) {
 	conn := newTcpConn(nil)
 	conn.PingPongMap.Store(uint64(1), 1)
@@ -226,5 +251,26 @@ func TestTcpConnPongDecrementsPendingPingCount(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
 		t.Fatalf("pendingPings = %d, want 0", got)
+	}
+}
+
+func TestTcpConnRecvControlPacketAfterCloseReturnsNil(t *testing.T) {
+	conn := newTcpConn(nil)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	pingBytes, err := PingEncode(Ping{SendTime: 1})
+	if err != nil {
+		t.Fatalf("PingEncode() error = %v", err)
+	}
+	packet, err := Encode(&DataProtocol{
+		Head: Header{PackId: PING, RouteId: 1, HeadUuid: 1},
+		Data: pingBytes,
+	})
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	if err := conn.recv(packet, nil); err != nil {
+		t.Fatalf("recv() error = %v, want nil during close", err)
 	}
 }
