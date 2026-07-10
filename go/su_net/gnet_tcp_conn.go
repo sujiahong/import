@@ -13,6 +13,8 @@ import (
 	"go.uber.org/zap"
 )
 
+type GNetRawHandler func(*GNetConn, *DataProtocol)
+
 // //gnet网络连接结构
 type GNetConn struct {
 	Gconn        gnet.Conn

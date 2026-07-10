@@ -3,8 +3,10 @@ package su_mq
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/IBM/sarama"
+	skafka "go.local/su_da/kafka"
 	"go.local/su_errors"
 )
 
@@ -50,6 +52,14 @@ func TestKafkaPartitionHandlerIncludesMessage(t *testing.T) {
 	}
 
 	handler(1, &sarama.ConsumerMessage{Value: []byte("payload")})
+}
+
+func TestKafkaConsumerConfigIncludesRetryInterval(t *testing.T) {
+	cfg := KafkaConsumerConfig{RetryInterval: 250 * time.Millisecond}
+	downstream := skafka.KafkaConsumerConfig{RetryInterval: cfg.RetryInterval}
+	if downstream.RetryInterval != cfg.RetryInterval {
+		t.Fatalf("retry interval = %s, want %s", downstream.RetryInterval, cfg.RetryInterval)
+	}
 }
 
 func TestKafkaMessageToMessage(t *testing.T) {

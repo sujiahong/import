@@ -24,13 +24,14 @@ type RedisConfig struct {
 }
 
 type RedisClient struct {
-	pool       *redis.Pool /////redis连接池
-	RemoteAddr string
-	ConnNum    int
-	cfg        RedisConfig
-	mu         sync.RWMutex
-	closeOnce  sync.Once
-	closeErr   error
+	pool        *redis.Pool /////redis连接池
+	RemoteAddr  string
+	ConnNum     int
+	cfg         RedisConfig
+	mu          sync.RWMutex
+	reconnectMu sync.Mutex
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 func NewRedisClient(redis_addr string, conn_num int) *RedisClient {
@@ -59,6 +60,8 @@ func (rc *RedisClient) Connect() error {
 	if rc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "redis client is nil")
 	}
+	rc.reconnectMu.Lock()
+	defer rc.reconnectMu.Unlock()
 	cfg := defaultRedisConfig(rc.cfg)
 	if cfg.RemoteAddr == "" {
 		cfg.RemoteAddr = rc.RemoteAddr
@@ -106,6 +109,10 @@ func (rc *RedisClient) Connect() error {
 	return nil
 }
 
+func (rc *RedisClient) Reconnect() error {
+	return rc.Connect()
+}
+
 func (rc *RedisClient) Test() {
 	c, err := redis.Dial("tcp", rc.RemoteAddr)
 	if err != nil {
@@ -123,6 +130,8 @@ func (rc *RedisClient) Close() error {
 	if rc == nil {
 		return nil
 	}
+	rc.reconnectMu.Lock()
+	defer rc.reconnectMu.Unlock()
 	rc.closeOnce.Do(func() {
 		rc.mu.Lock()
 		if rc.pool == nil {

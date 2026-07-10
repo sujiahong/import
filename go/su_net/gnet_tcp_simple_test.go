@@ -1,6 +1,8 @@
 package su_net
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -463,6 +465,26 @@ func TestGNetClientConnectFailureRestoresConnectedState(t *testing.T) {
 	}
 	if got := client.State(); got != 2 {
 		t.Fatalf("client state = %d, want 2 after dial failure", got)
+	}
+}
+
+func TestGNetClientWaitForConnectionReturnsWhenConnected(t *testing.T) {
+	client := &GTcpClient{state: 1, connList: []*GNetConn{{}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if err := client.waitForConnection(ctx); err != nil {
+		t.Fatalf("waitForConnection() error = %v", err)
+	}
+}
+
+func TestGNetClientWaitForConnectionHonorsContext(t *testing.T) {
+	client := &GTcpClient{state: 1}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	if err := client.waitForConnection(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitForConnection() error = %v, want deadline exceeded", err)
 	}
 }
 

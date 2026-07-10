@@ -61,6 +61,64 @@ func TestCreateTcpServerAndClient(t *testing.T) {
 	}
 }
 
+func TestTcpWriteTimeoutConfigAndUpdate(t *testing.T) {
+	gotServerTimeout := make(chan time.Duration, 1)
+	server, err := CreateTcpServerWithConfig("127.0.0.1:0", TcpNetConfig{WriteTimeout: 0}, func(conn *TcpConn, dp *DataProtocol) {
+		gotServerTimeout <- conn.WriteTimeout()
+	})
+	if err != nil {
+		t.Fatalf("CreateTcpServerWithConfig() error = %v", err)
+	}
+	defer server.Close()
+	if server.WriteTimeout() != 0 {
+		t.Fatalf("server WriteTimeout() = %s, want 0", server.WriteTimeout())
+	}
+
+	client, err := CreateTcpClientWithConfig(server.Addr, TcpNetConfig{WriteTimeout: 0})
+	if err != nil {
+		t.Fatalf("CreateTcpClientWithConfig() error = %v", err)
+	}
+	defer client.Close()
+	if client.WriteTimeout() != 0 {
+		t.Fatalf("client WriteTimeout() = %s, want 0", client.WriteTimeout())
+	}
+	if client.Conn.WriteTimeout() != 0 {
+		t.Fatalf("client conn WriteTimeout() = %s, want 0", client.Conn.WriteTimeout())
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.ConnCount() == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if server.ConnCount() != 1 {
+		t.Fatalf("server ConnCount() = %d, want 1", server.ConnCount())
+	}
+
+	server.SetWriteTimeout(123 * time.Millisecond)
+	client.SetWriteTimeout(456 * time.Millisecond)
+	if client.WriteTimeout() != 456*time.Millisecond {
+		t.Fatalf("client WriteTimeout() = %s, want 456ms", client.WriteTimeout())
+	}
+	if client.Conn.WriteTimeout() != 456*time.Millisecond {
+		t.Fatalf("client conn WriteTimeout() = %s, want 456ms", client.Conn.WriteTimeout())
+	}
+
+	if err := client.Send(&DataProtocol{Head: Header{PackId: 10, RouteId: 20}, Data: []byte("timeout")}); err != nil {
+		t.Fatalf("client Send() error = %v", err)
+	}
+	select {
+	case timeout := <-gotServerTimeout:
+		if timeout != 123*time.Millisecond {
+			t.Fatalf("server conn WriteTimeout() = %s, want 123ms", timeout)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for tcp server handler")
+	}
+}
+
 func TestTcpPingPong(t *testing.T) {
 	server, err := CreateTcpServer("127.0.0.1:0")
 	if err != nil {
@@ -129,6 +187,43 @@ func TestTcpClientHeartbeatStopsOnRemoteClose(t *testing.T) {
 	case <-client.done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for tcp client heartbeat to stop")
+	}
+}
+
+func TestTcpClientReconnectRestoresSend(t *testing.T) {
+	got := make(chan DataProtocol, 1)
+	server, err := CreateTcpServer("127.0.0.1:0", func(conn *TcpConn, dp *DataProtocol) {
+		_ = conn.Send(&DataProtocol{
+			Head: Header{PackId: dp.Head.PackId + 1, RouteId: dp.Head.RouteId, HeadUuid: dp.Head.HeadUuid},
+			Data: append([]byte(nil), dp.Data...),
+		})
+	})
+	if err != nil {
+		t.Fatalf("CreateTcpServer() error = %v", err)
+	}
+	defer server.Close()
+
+	client, err := CreateTcpClient(server.Addr, func(conn *TcpConn, dp *DataProtocol) {
+		got <- *dp
+	})
+	if err != nil {
+		t.Fatalf("CreateTcpClient() error = %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Reconnect(); err != nil {
+		t.Fatalf("Reconnect() error = %v", err)
+	}
+	if err := client.Send(&DataProtocol{Head: Header{PackId: 30, RouteId: 31}, Data: []byte("reconnect")}); err != nil {
+		t.Fatalf("Send() after reconnect error = %v", err)
+	}
+	select {
+	case dp := <-got:
+		if dp.Head.PackId != 31 || string(dp.Data) != "reconnect" {
+			t.Fatalf("response = %+v data=%q", dp.Head, dp.Data)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for tcp reconnect response")
 	}
 }
 

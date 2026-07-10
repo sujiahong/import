@@ -1,15 +1,9 @@
 package su_net
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"go.local/su_errors"
 	slog "go.local/su_log"
-	"go.local/su_util"
-	"net"
-	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,8 +11,6 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
-
-const defaultWSPath = "/ws"
 
 type WSHandler func(*WSConn, *DataProtocol)
 
@@ -31,13 +23,33 @@ type WSConn struct {
 	checkTimes   int32
 	pendingPings int32
 	PingPongMap  sync.Map
+	writeTimeout int64
 }
 
 func newWSConn(conn *websocket.Conn) *WSConn {
+	return newWSConnWithWriteTimeout(conn, DEFAULT_WRITE_TIMEOUT)
+}
+
+func newWSConnWithWriteTimeout(conn *websocket.Conn, writeTimeout time.Duration) *WSConn {
 	return &WSConn{
-		conn:     conn,
-		recvData: make([]byte, 0, 4096),
+		conn:         conn,
+		recvData:     make([]byte, 0, 4096),
+		writeTimeout: int64(writeTimeout),
 	}
+}
+
+func (wc *WSConn) SetWriteTimeout(timeout time.Duration) {
+	if wc == nil {
+		return
+	}
+	atomic.StoreInt64(&wc.writeTimeout, int64(timeout))
+}
+
+func (wc *WSConn) WriteTimeout() time.Duration {
+	if wc == nil {
+		return 0
+	}
+	return time.Duration(atomic.LoadInt64(&wc.writeTimeout))
 }
 
 func (wc *WSConn) Send(dp *DataProtocol) error {
@@ -57,6 +69,12 @@ func (wc *WSConn) SendBytes(bs []byte) error {
 	if atomic.LoadInt32(&wc.closed) == 1 || wc.conn == nil {
 		return su_errors.New(su_errors.CodeUnavailable, "websocket conn is closed")
 	}
+	if writeTimeout := wc.WriteTimeout(); writeTimeout > 0 {
+		if err := wc.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+			return su_errors.WrapRetryable(su_errors.CodeUnavailable, "websocket set write deadline failed", err)
+		}
+		defer wc.conn.SetWriteDeadline(time.Time{})
+	}
 	if err := wc.conn.WriteMessage(websocket.BinaryMessage, bs); err != nil {
 		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "websocket write failed", err)
 	}
@@ -71,8 +89,6 @@ func (wc *WSConn) Close() error {
 	wc.closeOnce.Do(func() {
 		atomic.StoreInt32(&wc.closed, 1)
 		wc.ClearHeartbeat()
-		wc.writeMu.Lock()
-		defer wc.writeMu.Unlock()
 		if wc.conn == nil {
 			return
 		}
@@ -233,194 +249,4 @@ func (wc *WSConn) handleControlPacket(dp *DataProtocol) (bool, error) {
 	default:
 		return false, nil
 	}
-}
-
-type WSServer struct {
-	Addr       string
-	Path       string
-	server     *http.Server
-	listener   net.Listener
-	handler    WSHandler
-	conns      map[uint64]*WSConn
-	connsMu    sync.Mutex
-	nextConnID uint64
-	pool       *su_util.GoPool
-	closeOnce  sync.Once
-	upgrader   websocket.Upgrader
-}
-
-func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "listen websocket failed", err)
-	}
-	ws := &WSServer{
-		Addr:     listener.Addr().String(),
-		Path:     defaultWSPath,
-		listener: listener,
-		conns:    make(map[uint64]*WSConn),
-		pool:     su_util.NewGoPool(16, 1024),
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-	}
-	if len(handlers) > 0 {
-		ws.handler = handlers[0]
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc(ws.Path, ws.handleHTTP)
-	ws.server = &http.Server{Handler: mux}
-	go func() {
-		if err := ws.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("websocket server failed", zap.Error(err))
-		}
-	}()
-	return ws, nil
-}
-
-func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	conn, err := ws.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		slog.Error("websocket upgrade failed", zap.Error(err))
-		return
-	}
-	wsConn := newWSConn(conn)
-	key := atomic.AddUint64(&ws.nextConnID, 1)
-	ws.connsMu.Lock()
-	ws.conns[key] = wsConn
-	ws.connsMu.Unlock()
-	go func() {
-		defer func() {
-			ws.connsMu.Lock()
-			if ws.conns[key] == wsConn {
-				delete(ws.conns, key)
-			}
-			ws.connsMu.Unlock()
-		}()
-		wsConn.readLoop(func(conn *WSConn, dp *DataProtocol) {
-			if ws.handler == nil {
-				return
-			}
-			taskDP := *dp
-			taskDP.Data = append([]byte(nil), dp.Data...)
-			if !ws.pool.SendTask(taskDP.Head.RouteId, func() {
-				ws.handler(conn, &taskDP)
-			}) {
-				slog.Warn("websocket server task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))
-			}
-		})
-	}()
-}
-
-func (ws *WSServer) Close() error {
-	if ws == nil {
-		return nil
-	}
-	var err error
-	ws.closeOnce.Do(func() {
-		if ws.listener != nil {
-			ws.listener.Close()
-		}
-		if ws.server != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			err = ws.server.Shutdown(ctx)
-			cancel()
-			if errors.Is(err, net.ErrClosed) {
-				err = nil
-			}
-		}
-		conns := make([]*WSConn, 0)
-		ws.connsMu.Lock()
-		for _, conn := range ws.conns {
-			conns = append(conns, conn)
-		}
-		ws.connsMu.Unlock()
-		for _, conn := range conns {
-			conn.Close()
-		}
-		if ws.pool != nil && !ws.pool.StopAndDrain(DEFAULT_CLOSE_TIMEOUT) {
-			slog.Warn("websocket server pool drain timeout")
-		}
-	})
-	return err
-}
-
-func (ws *WSServer) ConnCount() int {
-	if ws == nil {
-		return 0
-	}
-	ws.connsMu.Lock()
-	defer ws.connsMu.Unlock()
-	return len(ws.conns)
-}
-
-type WSClient struct {
-	Addr     string
-	Conn     *WSConn
-	handler  WSHandler
-	done     chan struct{}
-	stopOnce sync.Once
-}
-
-func CreateWSClient(addr string, handlers ...WSHandler) (*WSClient, error) {
-	url := normalizeWSURL(addr)
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
-	if err != nil {
-		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "dial websocket failed", err)
-	}
-	client := &WSClient{
-		Addr: url,
-		Conn: newWSConn(conn),
-		done: make(chan struct{}),
-	}
-	if len(handlers) > 0 {
-		client.handler = handlers[0]
-	}
-	go func() {
-		defer client.stopHeartbeat()
-		client.Conn.readLoop(client.handler)
-	}()
-	go client.heartbeatLoop()
-	return client, nil
-}
-
-func normalizeWSURL(addr string) string {
-	if strings.HasPrefix(addr, "ws://") || strings.HasPrefix(addr, "wss://") {
-		return addr
-	}
-	return fmt.Sprintf("ws://%s%s", addr, defaultWSPath)
-}
-
-func (wc *WSClient) heartbeatLoop() {
-	ticker := time.NewTicker(time.Duration(PING_PONG_INTERVAL) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			wc.Conn.CheckPong()
-		case <-wc.done:
-			return
-		}
-	}
-}
-
-func (wc *WSClient) stopHeartbeat() {
-	wc.stopOnce.Do(func() {
-		close(wc.done)
-	})
-}
-
-func (wc *WSClient) Send(dp *DataProtocol) error {
-	if wc == nil || wc.Conn == nil {
-		return su_errors.New(su_errors.CodeInvalidArgument, "websocket client is nil")
-	}
-	return wc.Conn.Send(dp)
-}
-
-func (wc *WSClient) Close() error {
-	if wc == nil || wc.Conn == nil {
-		return nil
-	}
-	wc.stopHeartbeat()
-	return wc.Conn.Close()
 }

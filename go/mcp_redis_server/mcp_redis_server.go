@@ -6,19 +6,20 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
+	su_redis "go.local/su_da/redis"
+	slog "go.local/su_log"
 	"go.uber.org/zap"
-	"go/su_da/redis"
-	slog "go/su_log"
 )
 
 // MCP 服务器结构
 type MCPServer struct {
 	addr         string
 	listener     net.Listener
-	redisClient  *redis.RedisClient
+	redisClient  *su_redis.RedisClient
 	handlers     map[string]HandlerFunc
 	modelContext map[string]ModelContext // 模型上下文管理
 	mu           sync.RWMutex
@@ -62,12 +63,15 @@ type ModelContext struct {
 }
 
 // 初始化 MCP 服务器
-func NewMCPServer(addr string, redisAddr string, redisConnNum int) *MCPServer {
+func NewMCPServer(addr string, redisAddr string, redisConnNum int) (*MCPServer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 初始化 Redis 客户端
-	redisClient := redis.NewRedisClient(redisAddr, redisConnNum)
-	redisClient.Connect()
+	redisClient := su_redis.NewRedisClient(redisAddr, redisConnNum)
+	if err := redisClient.Connect(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("connect redis failed: %w", err)
+	}
 
 	return &MCPServer{
 		addr:         addr,
@@ -76,7 +80,7 @@ func NewMCPServer(addr string, redisAddr string, redisConnNum int) *MCPServer {
 		modelContext: make(map[string]ModelContext),
 		ctx:          ctx,
 		cancel:       cancel,
-	}
+	}, nil
 }
 
 // 注册处理器
@@ -203,7 +207,11 @@ func (s *MCPServer) Stop() error {
 // 主函数
 func main() {
 	// 初始化服务器
-	server := NewMCPServer(":8080", "localhost:6379", 10)
+	server, err := NewMCPServer(":8080", "localhost:6379", 10)
+	if err != nil {
+		slog.Error("Failed to create server", zap.Error(err))
+		os.Exit(1)
+	}
 
 	// 注册模型创建处理器
 	server.Register("model.create", func(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -500,7 +508,8 @@ func main() {
 
 	// 启动服务器
 	if err := server.Start(); err != nil {
-		slog.Fatal("Failed to start server", zap.Error(err))
+		slog.Error("Failed to start server", zap.Error(err))
+		os.Exit(1)
 	}
 
 	// 等待中断信号

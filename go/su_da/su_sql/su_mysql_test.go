@@ -84,6 +84,30 @@ func TestMysqlCloseOnceAndReconnectReset(t *testing.T) {
 	}
 }
 
+func TestMysqlCloseWaitsForReconnectLock(t *testing.T) {
+	var closeCount atomic.Int32
+	mc := &MysqlClient{Db: newFakeMysqlDB(&closeCount)}
+	mc.reconnectMu.Lock()
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- mc.Close()
+	}()
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close completed while reconnectMu was held: %v", err)
+	case <-time.After(10 * time.Millisecond):
+	}
+	mc.reconnectMu.Unlock()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not finish after reconnectMu was released")
+	}
+}
+
 func TestMysqlConfigConstructorDefaults(t *testing.T) {
 	mc, err := NewMysqlClientWithConfig(MysqlConfig{
 		Uname:  "root",

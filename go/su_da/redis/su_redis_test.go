@@ -108,6 +108,37 @@ func TestRedisReconnectResetsCloseOnce(t *testing.T) {
 	}
 }
 
+func TestRedisCloseWaitsForReconnectLock(t *testing.T) {
+	rc := &RedisClient{
+		pool: &redis.Pool{
+			MaxActive: 1,
+			Dial: func() (redis.Conn, error) {
+				return fakeRedisConn{}, nil
+			},
+		},
+	}
+	rc.closeOnce = sync.Once{}
+	rc.reconnectMu.Lock()
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- rc.Close()
+	}()
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close completed while reconnectMu was held: %v", err)
+	case <-time.After(10 * time.Millisecond):
+	}
+	rc.reconnectMu.Unlock()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not finish after reconnectMu was released")
+	}
+}
+
 func TestRedisCloseDoesNotWaitForBlockedPoolGet(t *testing.T) {
 	rc := &RedisClient{
 		pool: &redis.Pool{

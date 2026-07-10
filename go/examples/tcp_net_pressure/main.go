@@ -33,6 +33,7 @@ func main() {
 	inflight := flag.Int("inflight", 4096, "maximum in-flight requests")
 	payloadBytes := flag.Int("payload", 32, "request payload bytes")
 	timeout := flag.Duration("timeout", 120*time.Second, "wait timeout")
+	writeTimeout := flag.Duration("write-timeout", 0, "per-packet write timeout; 0 disables SetWriteDeadline")
 	flag.Parse()
 
 	if *clientCount <= 0 {
@@ -49,7 +50,8 @@ func main() {
 	}
 
 	payload := strings.Repeat("x", *payloadBytes)
-	server, err := su_net.CreateTcpServer(*addr, func(conn *su_net.TcpConn, dp *su_net.DataProtocol) {
+	cfg := su_net.TcpNetConfig{WriteTimeout: *writeTimeout}
+	server, err := su_net.CreateTcpServerWithConfig(*addr, cfg, func(conn *su_net.TcpConn, dp *su_net.DataProtocol) {
 		rq := &testpb.TestRQ{}
 		if err := proto.Unmarshal(dp.Data, rq); err != nil {
 			panic(err)
@@ -84,7 +86,7 @@ func main() {
 	var doneOnce sync.Once
 	clients := make([]*su_net.TcpClient, 0, *clientCount)
 	for i := 0; i < *clientCount; i++ {
-		client, err := su_net.CreateTcpClient(server.Addr, func(conn *su_net.TcpConn, dp *su_net.DataProtocol) {
+		client, err := su_net.CreateTcpClientWithConfig(server.Addr, cfg, func(conn *su_net.TcpConn, dp *su_net.DataProtocol) {
 			rs := &testpb.TestRS{}
 			if err := proto.Unmarshal(dp.Data, rs); err != nil {
 				panic(err)
@@ -153,6 +155,6 @@ func main() {
 	elapsed := time.Since(start)
 	rps := float64(*requests) / elapsed.Seconds()
 	avgLatency := elapsed / time.Duration(*requests)
-	fmt.Printf("clients=%d senders=%d requests=%d inflight=%d payload=%d gomaxprocs=%d elapsed=%s throughput=%.0f req/s avg_roundtrip=%s received=%d\n",
-		*clientCount, *senderCount, *requests, *inflight, *payloadBytes, runtime.GOMAXPROCS(0), elapsed, rps, avgLatency, atomic.LoadUint64(&received))
+	fmt.Printf("clients=%d senders=%d requests=%d inflight=%d payload=%d write_timeout=%s gomaxprocs=%d elapsed=%s throughput=%.0f req/s avg_roundtrip=%s received=%d\n",
+		*clientCount, *senderCount, *requests, *inflight, *payloadBytes, *writeTimeout, runtime.GOMAXPROCS(0), elapsed, rps, avgLatency, atomic.LoadUint64(&received))
 }

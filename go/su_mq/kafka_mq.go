@@ -23,6 +23,7 @@ type KafkaConsumerConfig struct {
 	WorkerNum        uint32
 	QueueSize        uint32
 	CloseTimeout     time.Duration
+	RetryInterval    time.Duration
 	BackpressureMode KafkaBackpressureMode
 	LogMessages      bool
 	RetryPolicy      RetryPolicy
@@ -61,6 +62,7 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler KafkaMessageHandler) (*Ka
 		WorkerNum:        cfg.WorkerNum,
 		QueueSize:        cfg.QueueSize,
 		CloseTimeout:     cfg.CloseTimeout,
+		RetryInterval:    cfg.RetryInterval,
 		BackpressureMode: cfg.BackpressureMode,
 		LogMessages:      cfg.LogMessages,
 	}, wrappedHandler)

@@ -35,17 +35,18 @@ type MysqlConfig struct {
 }
 
 type MysqlClient struct {
-	Db         *sqlx.DB
-	Uname      string
-	Passwd     string
-	Addr       string
-	DbName     string
-	MaxOpenCns int
-	MaxIdleCns int
-	cfg        MysqlConfig
-	mu         sync.RWMutex
-	closeOnce  sync.Once
-	closeErr   error
+	Db          *sqlx.DB
+	Uname       string
+	Passwd      string
+	Addr        string
+	DbName      string
+	MaxOpenCns  int
+	MaxIdleCns  int
+	cfg         MysqlConfig
+	mu          sync.RWMutex
+	reconnectMu sync.Mutex
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns, a_max_idle_conns int) *MysqlClient {
@@ -88,6 +89,8 @@ func (mc *MysqlClient) Connect() error {
 	if mc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "mysql client is nil")
 	}
+	mc.reconnectMu.Lock()
+	defer mc.reconnectMu.Unlock()
 	cfg := defaultMysqlConfig(mc.cfg)
 	if cfg.DSN == "" {
 		cfg.Uname = firstNonEmpty(cfg.Uname, mc.Uname)
@@ -128,6 +131,10 @@ func (mc *MysqlClient) Connect() error {
 	return nil
 }
 
+func (mc *MysqlClient) Reconnect() error {
+	return mc.Connect()
+}
+
 func (mc *MysqlClient) dbLocked() (*sqlx.DB, error) {
 	if mc == nil || mc.Db == nil {
 		return nil, su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
@@ -139,6 +146,8 @@ func (mc *MysqlClient) Close() error {
 	if mc == nil {
 		return nil
 	}
+	mc.reconnectMu.Lock()
+	defer mc.reconnectMu.Unlock()
 	mc.closeOnce.Do(func() {
 		mc.mu.Lock()
 		if mc.Db == nil {
