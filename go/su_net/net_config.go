@@ -14,22 +14,26 @@ const (
 	defaultWSPath = "/ws"
 )
 
+// TcpNetConfig 定义 TCP client/server 的网络超时配置。
 type TcpNetConfig struct {
 	// WriteTimeout controls per-packet write deadlines. A zero or negative
 	// value disables SetWriteDeadline on the hot path.
 	WriteTimeout time.Duration
 }
 
+// DefaultTcpNetConfig 返回 TCP 网络默认配置。
 func DefaultTcpNetConfig() TcpNetConfig {
 	return TcpNetConfig{WriteTimeout: DEFAULT_WRITE_TIMEOUT}
 }
 
+// WSNetConfig 定义 WebSocket client/server 的网络超时配置。
 type WSNetConfig struct {
 	// WriteTimeout controls per-message write deadlines. A zero or negative
 	// value disables SetWriteDeadline on the hot path.
 	WriteTimeout time.Duration
 }
 
+// DefaultWSNetConfig 返回 WebSocket 网络默认配置。
 func DefaultWSNetConfig() WSNetConfig {
 	return WSNetConfig{WriteTimeout: DEFAULT_WRITE_TIMEOUT}
 }

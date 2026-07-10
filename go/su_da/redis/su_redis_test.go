@@ -1,6 +1,7 @@
 package su_redis
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ func TestRedisConfigConstructorDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config constructor failed: %v", err)
 	}
+	rc.dial = fakeRedisDialer(fakeRedisConn{}, nil)
 	if err := rc.Connect(); err != nil {
 		t.Fatalf("connect config failed: %v", err)
 	}
@@ -62,6 +64,7 @@ func TestRedisConfigConstructorDefaults(t *testing.T) {
 
 func TestRedisConnectDefaultsAndClose(t *testing.T) {
 	rc := NewRedisClient("127.0.0.1:6379", 0)
+	rc.dial = fakeRedisDialer(fakeRedisConn{}, nil)
 
 	if err := rc.Connect(); err != nil {
 		t.Fatalf("connect config failed: %v", err)
@@ -77,6 +80,23 @@ func TestRedisConnectDefaultsAndClose(t *testing.T) {
 	}
 	if err := rc.Close(); err != nil {
 		t.Fatalf("second close failed: %v", err)
+	}
+}
+
+func TestRedisConnectPingsBeforePublishingPool(t *testing.T) {
+	rc := NewRedisClient("127.0.0.1:6379", 1)
+	rc.dial = fakeRedisDialer(fakeRedisConn{doErr: errors.New("redis down")}, nil)
+
+	if err := rc.Connect(); err == nil {
+		t.Fatal("Connect() error = nil, want ping failure")
+	} else if su_errors.CodeOf(err) != su_errors.CodeUnavailable {
+		t.Fatalf("error code = %d, want unavailable", su_errors.CodeOf(err))
+	}
+	rc.mu.RLock()
+	pool := rc.pool
+	rc.mu.RUnlock()
+	if pool != nil {
+		t.Fatal("pool should not be published after ping failure")
 	}
 }
 
@@ -194,14 +214,26 @@ func (rc *RedisClient) setPoolForTest(pool *redis.Pool) {
 	rc.mu.Unlock()
 }
 
-type fakeRedisConn struct{}
+func fakeRedisDialer(conn redis.Conn, err error) func(RedisConfig) (redis.Conn, error) {
+	return func(RedisConfig) (redis.Conn, error) {
+		return conn, err
+	}
+}
+
+type fakeRedisConn struct {
+	connErr error
+	doErr   error
+}
 
 func (fakeRedisConn) Close() error { return nil }
 
-func (fakeRedisConn) Err() error { return nil }
+func (c fakeRedisConn) Err() error { return c.connErr }
 
-func (fakeRedisConn) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
-	return nil, nil
+func (c fakeRedisConn) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
+	if c.doErr != nil {
+		return nil, c.doErr
+	}
+	return "PONG", nil
 }
 
 func (fakeRedisConn) Send(commandName string, args ...interface{}) error { return nil }

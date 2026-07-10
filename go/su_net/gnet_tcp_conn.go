@@ -13,9 +13,10 @@ import (
 	"go.uber.org/zap"
 )
 
+// GNetRawHandler 处理 gnet 原始 DataProtocol 数据包。
 type GNetRawHandler func(*GNetConn, *DataProtocol)
 
-// //gnet网络连接结构
+// GNetConn 封装 gnet.Conn，并维护收包缓存、地址信息和心跳状态。
 type GNetConn struct {
 	Gconn        gnet.Conn
 	RemoteAddr   string
@@ -28,6 +29,7 @@ type GNetConn struct {
 	PingPongMap  sync.Map /////注册处理映射
 }
 
+// NewGnetConn 创建 gnet 连接包装并缓存本地/远端地址。
 func NewGnetConn(c gnet.Conn) *GNetConn {
 	gnc := &GNetConn{
 		Gconn:    c,
@@ -40,6 +42,7 @@ func NewGnetConn(c gnet.Conn) *GNetConn {
 	return gnc
 }
 
+// Send 通过 gnet 异步写接口发送已编码数据。
 func (gnc *GNetConn) Send(a_data []byte) error {
 	if gnc == nil || gnc.Gconn == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "gnet conn is nil")
@@ -54,6 +57,7 @@ func (gnc *GNetConn) Send(a_data []byte) error {
 	return nil
 }
 
+// SendPacket 编码 DataProtocol 后发送。
 func (gnc *GNetConn) SendPacket(dp *DataProtocol) error {
 	if dp == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "nil data protocol")
@@ -65,6 +69,7 @@ func (gnc *GNetConn) SendPacket(dp *DataProtocol) error {
 	return gnc.Send(bs)
 }
 
+// Recv 处理 gnet 读到的帧数据，支持粘包/半包解析。
 func (gnc *GNetConn) Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)) {
 	gnc.recvData = append(gnc.recvData, frame...)
 	var err error
@@ -90,6 +95,7 @@ func (gnc *GNetConn) Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)) 
 	}
 }
 
+// Ping 发送一次应用层心跳请求。
 func (gnc *GNetConn) Ping() error {
 	routeID := nextRouteID()
 	micro_time := uint64(time.Now().UnixNano() / 1000)
@@ -120,6 +126,7 @@ func (gnc *GNetConn) Ping() error {
 	return nil
 }
 
+// CheckPong 检查未完成心跳并在连续未响应时关闭连接。
 func (gnc *GNetConn) CheckPong() {
 	if gnc == nil || atomic.LoadInt32(&gnc.closed) == 1 {
 		return
@@ -143,6 +150,7 @@ func (gnc *GNetConn) CheckPong() {
 	}
 }
 
+// Close 关闭 gnet 连接并清理心跳状态。
 func (gnc *GNetConn) Close() {
 	if gnc == nil {
 		return
@@ -157,6 +165,7 @@ func (gnc *GNetConn) Close() {
 	})
 }
 
+// markClosed 标记连接已关闭，用于 gnet OnClose 回调中避免重复关闭底层连接。
 func (gnc *GNetConn) markClosed() {
 	if gnc == nil {
 		return
@@ -165,6 +174,7 @@ func (gnc *GNetConn) markClosed() {
 	gnc.ClearHeartbeat()
 }
 
+// ClearHeartbeat 清空未收到响应的心跳记录。
 func (gnc *GNetConn) ClearHeartbeat() {
 	if gnc == nil {
 		return

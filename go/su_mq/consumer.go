@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 )
 
+// Message 是 su_mq 内部统一的消费消息模型。
 type Message struct {
 	ID        string
 	Source    string
@@ -18,16 +19,20 @@ type Message struct {
 	Raw       any
 }
 
+// Handler 处理一条标准化后的消息。
 type Handler func(ctx context.Context, msg Message) error
 
+// HandlerRegistry 按 topic 保存消息处理函数。
 type HandlerRegistry struct {
 	handlers map[string]Handler
 }
 
+// NewHandlerRegistry 创建空的 handler registry。
 func NewHandlerRegistry() *HandlerRegistry {
 	return &HandlerRegistry{handlers: make(map[string]Handler)}
 }
 
+// Register 为 topic 注册处理函数；空 topic 或 nil handler 会被忽略。
 func (r *HandlerRegistry) Register(topic string, handler Handler) {
 	if r == nil || topic == "" || handler == nil {
 		return
@@ -35,6 +40,7 @@ func (r *HandlerRegistry) Register(topic string, handler Handler) {
 	r.handlers[topic] = handler
 }
 
+// Handler 返回 topic 对应的处理函数。
 func (r *HandlerRegistry) Handler(topic string) Handler {
 	if r == nil {
 		return nil
@@ -42,6 +48,7 @@ func (r *HandlerRegistry) Handler(topic string) Handler {
 	return r.handlers[topic]
 }
 
+// ProcessorOptions 定义消息处理的重试、死信、幂等和指标插件。
 type ProcessorOptions struct {
 	RetryPolicy RetryPolicy
 	DeadLetter  DeadLetter
@@ -49,14 +56,17 @@ type ProcessorOptions struct {
 	Metrics     MQMetrics
 }
 
+// Processor 负责围绕业务 handler 执行幂等检查、重试、死信和指标记录。
 type Processor struct {
 	opts ProcessorOptions
 }
 
+// NewProcessor 创建消息处理器，并补齐缺省组件。
 func NewProcessor(opts ProcessorOptions) *Processor {
 	return &Processor{opts: normalizeProcessorOptions(opts)}
 }
 
+// Process 执行一条消息的完整处理流程。
 func (p *Processor) Process(ctx context.Context, msg Message, handler Handler) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -115,6 +125,7 @@ func (p *Processor) Process(ctx context.Context, msg Message, handler Handler) e
 	return err
 }
 
+// normalizeProcessorOptions 为未设置的处理组件填充 no-op 默认实现。
 func normalizeProcessorOptions(opts ProcessorOptions) ProcessorOptions {
 	if opts.RetryPolicy == nil {
 		opts.RetryPolicy = NoRetry{}
@@ -131,6 +142,7 @@ func normalizeProcessorOptions(opts ProcessorOptions) ProcessorOptions {
 	return opts
 }
 
+// messageID 生成幂等使用的消息 ID，优先使用显式 ID 和 Kafka offset。
 func messageID(msg Message) string {
 	if msg.ID != "" {
 		return msg.ID

@@ -13,8 +13,10 @@ import (
 	"go.uber.org/zap"
 )
 
+// TcpHandler 处理 TCP 连接上解析出的业务数据包。
 type TcpHandler func(*TcpConn, *DataProtocol)
 
+// TcpConn 封装 net.TCPConn，并维护收包缓存、写锁和心跳状态。
 type TcpConn struct {
 	conn         *net.TCPConn
 	closed       int32
@@ -27,10 +29,12 @@ type TcpConn struct {
 	writeTimeout int64
 }
 
+// newTcpConn 使用默认写超时创建 TCP 连接包装。
 func newTcpConn(conn *net.TCPConn) *TcpConn {
 	return newTcpConnWithWriteTimeout(conn, DEFAULT_WRITE_TIMEOUT)
 }
 
+// newTcpConnWithWriteTimeout 使用指定写超时创建 TCP 连接包装。
 func newTcpConnWithWriteTimeout(conn *net.TCPConn, writeTimeout time.Duration) *TcpConn {
 	return &TcpConn{
 		conn:         conn,
@@ -39,6 +43,7 @@ func newTcpConnWithWriteTimeout(conn *net.TCPConn, writeTimeout time.Duration) *
 	}
 }
 
+// SetWriteTimeout 更新当前连接的单次写超时。
 func (tc *TcpConn) SetWriteTimeout(timeout time.Duration) {
 	if tc == nil {
 		return
@@ -46,6 +51,7 @@ func (tc *TcpConn) SetWriteTimeout(timeout time.Duration) {
 	atomic.StoreInt64(&tc.writeTimeout, int64(timeout))
 }
 
+// WriteTimeout 返回当前连接的单次写超时。
 func (tc *TcpConn) WriteTimeout() time.Duration {
 	if tc == nil {
 		return 0
@@ -53,6 +59,7 @@ func (tc *TcpConn) WriteTimeout() time.Duration {
 	return time.Duration(atomic.LoadInt64(&tc.writeTimeout))
 }
 
+// RemoteAddr 返回底层 TCP 连接的远端地址。
 func (tc *TcpConn) RemoteAddr() net.Addr {
 	if tc == nil || tc.conn == nil {
 		return nil
@@ -60,6 +67,7 @@ func (tc *TcpConn) RemoteAddr() net.Addr {
 	return tc.conn.RemoteAddr()
 }
 
+// LocalAddr 返回底层 TCP 连接的本地地址。
 func (tc *TcpConn) LocalAddr() net.Addr {
 	if tc == nil || tc.conn == nil {
 		return nil
@@ -67,6 +75,7 @@ func (tc *TcpConn) LocalAddr() net.Addr {
 	return tc.conn.LocalAddr()
 }
 
+// Send 编码 DataProtocol 并写入 TCP 连接。
 func (tc *TcpConn) Send(dp *DataProtocol) error {
 	bs, err := Encode(dp)
 	if err != nil {
@@ -75,6 +84,7 @@ func (tc *TcpConn) Send(dp *DataProtocol) error {
 	return tc.SendBytes(bs)
 }
 
+// SendBytes 将完整二进制包写入 TCP 连接，并处理短写。
 func (tc *TcpConn) SendBytes(bs []byte) error {
 	if tc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "tcp conn is nil")
@@ -103,6 +113,7 @@ func (tc *TcpConn) SendBytes(bs []byte) error {
 	return nil
 }
 
+// Close 关闭 TCP 连接并清理心跳状态。
 func (tc *TcpConn) Close() error {
 	if tc == nil {
 		return nil
@@ -119,6 +130,7 @@ func (tc *TcpConn) Close() error {
 	return err
 }
 
+// ClearHeartbeat 清空未收到响应的心跳记录。
 func (tc *TcpConn) ClearHeartbeat() {
 	if tc == nil {
 		return
@@ -128,6 +140,7 @@ func (tc *TcpConn) ClearHeartbeat() {
 	atomic.StoreInt32(&tc.checkTimes, 0)
 }
 
+// Ping 发送一次应用层心跳请求。
 func (tc *TcpConn) Ping() error {
 	routeID := nextRouteID()
 	microTime := uint64(time.Now().UnixNano() / 1000)
@@ -154,6 +167,7 @@ func (tc *TcpConn) Ping() error {
 	return nil
 }
 
+// CheckPong 检查未完成心跳并在连续未响应时关闭连接。
 func (tc *TcpConn) CheckPong() {
 	if tc == nil || atomic.LoadInt32(&tc.closed) == 1 {
 		return
@@ -175,6 +189,7 @@ func (tc *TcpConn) CheckPong() {
 	}
 }
 
+// readLoop 持续读取底层 TCP 流并交给 recv 解析。
 func (tc *TcpConn) readLoop(handler TcpHandler) {
 	buf := make([]byte, 4096)
 	defer tc.Close()
@@ -197,6 +212,7 @@ func (tc *TcpConn) readLoop(handler TcpHandler) {
 	}
 }
 
+// recv 处理 TCP 粘包/半包，并将完整业务包交给 handler。
 func (tc *TcpConn) recv(frame []byte, handler TcpHandler) error {
 	tc.recvData = append(tc.recvData, frame...)
 	for {
@@ -234,6 +250,7 @@ func (tc *TcpConn) recv(frame []byte, handler TcpHandler) error {
 	}
 }
 
+// handleControlPacket 处理 PING/PONG 控制包，返回 true 表示该包已被内部消费。
 func (tc *TcpConn) handleControlPacket(dp *DataProtocol) (bool, error) {
 	switch dp.Head.PackId {
 	case PING:

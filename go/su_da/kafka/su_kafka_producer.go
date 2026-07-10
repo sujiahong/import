@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// KafkaProducerConfig 定义 Kafka producer 的连接、发送模式、缓冲和重试配置。
 type KafkaProducerConfig struct {
 	AddrSlice         []string
 	Topic             string
@@ -31,6 +32,7 @@ var (
 	newSaramaSyncProducer  = sarama.NewSyncProducer
 )
 
+// KafkaProducer 封装 sarama 同步或异步 producer，并管理重连和关闭生命周期。
 type KafkaProducer struct {
 	AddrSlice     []string
 	Topic         string
@@ -48,12 +50,14 @@ type KafkaProducer struct {
 	logMessages   bool
 }
 
+// syncSendResult 保存同步发送 goroutine 返回的分区、offset 和错误。
 type syncSendResult struct {
 	partition int32
 	offset    int64
 	err       error
 }
 
+// NewKafkaProducer 使用地址、topic 和异步标记创建 Kafka producer。
 func NewKafkaProducer(a_addr []string, a_topic string, a_async bool) *KafkaProducer {
 	return NewKafkaProducerWithConfig(KafkaProducerConfig{
 		AddrSlice: a_addr,
@@ -62,6 +66,7 @@ func NewKafkaProducer(a_addr []string, a_topic string, a_async bool) *KafkaProdu
 	})
 }
 
+// NewKafkaProducerWithConfig 使用完整配置创建 Kafka producer。
 func NewKafkaProducerWithConfig(cfg KafkaProducerConfig) *KafkaProducer {
 	cfg = defaultKafkaProducerConfig(cfg)
 	client, asclient, err := newKafkaProducerClients(cfg)
@@ -90,16 +95,19 @@ func NewKafkaProducerWithConfig(cfg KafkaProducerConfig) *KafkaProducer {
 	return kp
 }
 
+// Send 使用当前时间戳作为 key 发送消息。
 func (kp *KafkaProducer) Send(a_msg string) error {
 	timeNow := time.Now().UnixNano()
 	key := strconv.FormatInt(timeNow, 10)
 	return kp.SendWithKey(key, a_msg)
 }
 
+// SendWithKey 使用指定 key 发送消息。
 func (kp *KafkaProducer) SendWithKey(a_key, a_msg string) error {
 	return kp.SendContext(context.Background(), a_key, a_msg)
 }
 
+// SendContext 按 producer 模式发送消息；同步模式会等待 broker 结果，异步模式写入 Input 后返回。
 func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -191,6 +199,7 @@ func (kp *KafkaProducer) SendContext(ctx context.Context, a_key, a_msg string) (
 	}
 }
 
+// sendSyncMessageWithRetry 执行同步发送，并在第一次失败后重连并重试一次。
 func (kp *KafkaProducer) sendSyncMessageWithRetry(client sarama.SyncProducer, msg *sarama.ProducerMessage) error {
 	pid, offset, err := client.SendMessage(msg)
 	if err != nil {
@@ -206,6 +215,7 @@ func (kp *KafkaProducer) sendSyncMessageWithRetry(client sarama.SyncProducer, ms
 	return nil
 }
 
+// reconnectAndRetrySync 重建同步 producer 后重发当前消息。
 func (kp *KafkaProducer) reconnectAndRetrySync(ctx context.Context, msg *sarama.ProducerMessage) error {
 	if err := kp.Reconnect(); err != nil {
 		return err
@@ -238,6 +248,7 @@ func (kp *KafkaProducer) reconnectAndRetrySync(ctx context.Context, msg *sarama.
 	return nil
 }
 
+// Reconnect 重建当前 producer client，并在交换完成后关闭旧 client。
 func (kp *KafkaProducer) Reconnect() error {
 	if kp == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "kafka producer is nil")
@@ -300,6 +311,7 @@ func (kp *KafkaProducer) Reconnect() error {
 	return nil
 }
 
+// reconnectAsyncProducer 针对失败的异步 producer 重建 client，忽略已被其他 goroutine 替换的旧 client。
 func (kp *KafkaProducer) reconnectAsyncProducer(failedClient sarama.AsyncProducer) error {
 	if kp == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "kafka producer is nil")
@@ -360,6 +372,7 @@ func (kp *KafkaProducer) reconnectAsyncProducer(failedClient sarama.AsyncProduce
 	return nil
 }
 
+// recoverAsyncProducer 在异步发送失败后持续重连，并将失败消息重投到新的 producer。
 func (kp *KafkaProducer) recoverAsyncProducer(failedClient sarama.AsyncProducer, producerErr *sarama.ProducerError) {
 	if producerErr == nil {
 		return
@@ -407,6 +420,7 @@ func (kp *KafkaProducer) recoverAsyncProducer(failedClient sarama.AsyncProducer,
 	}
 }
 
+// getAsyncProducer 并发安全地返回当前异步 producer。
 func (kp *KafkaProducer) getAsyncProducer() (sarama.AsyncProducer, error) {
 	kp.mu.RLock()
 	client := kp.asclient
@@ -426,6 +440,7 @@ func (kp *KafkaProducer) getAsyncProducer() (sarama.AsyncProducer, error) {
 	return client, nil
 }
 
+// retryAsyncMessage 将失败消息写入当前异步 producer 的 Input channel。
 func (kp *KafkaProducer) retryAsyncMessage(asclient sarama.AsyncProducer, msg *sarama.ProducerMessage) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -453,6 +468,7 @@ func (kp *KafkaProducer) retryAsyncMessage(asclient sarama.AsyncProducer, msg *s
 	}
 }
 
+// waitProducerRetry 等待下一次 producer 后台恢复重试或关闭信号。
 func (kp *KafkaProducer) waitProducerRetry() bool {
 	kp.mu.RLock()
 	producerCtx := kp.ctx
@@ -474,6 +490,7 @@ func (kp *KafkaProducer) waitProducerRetry() bool {
 	}
 }
 
+// isProducerClosed 判断 producer 上下文是否已经关闭。
 func (kp *KafkaProducer) isProducerClosed() bool {
 	if kp == nil {
 		return true
@@ -492,6 +509,7 @@ func (kp *KafkaProducer) isProducerClosed() bool {
 	}
 }
 
+// Close 关闭 producer，并保证只执行一次底层 client 关闭流程。
 func (kp *KafkaProducer) Close() error {
 	if kp == nil {
 		return nil
@@ -525,6 +543,7 @@ func (kp *KafkaProducer) Close() error {
 	return kp.closeErr
 }
 
+// handleSuccess 消费异步 producer 的成功 channel，避免 Return.Successes 开启时阻塞。
 func (kp *KafkaProducer) handleSuccess(asclient sarama.AsyncProducer) {
 	if asclient == nil {
 		return
@@ -544,6 +563,7 @@ func (kp *KafkaProducer) handleSuccess(asclient sarama.AsyncProducer) {
 	}
 }
 
+// handleError 消费异步 producer 的错误 channel，并触发后台恢复和失败消息重投。
 func (kp *KafkaProducer) handleError(asclient sarama.AsyncProducer) {
 	if asclient == nil {
 		return
@@ -564,6 +584,7 @@ func (kp *KafkaProducer) handleError(asclient sarama.AsyncProducer) {
 	}
 }
 
+// newKafkaProducerClients 根据配置创建同步或异步 sarama producer。
 func newKafkaProducerClients(cfg KafkaProducerConfig) (sarama.SyncProducer, sarama.AsyncProducer, error) {
 	config := sarama.NewConfig()
 	config.Producer.RequiredAcks = cfg.RequiredAcks
@@ -586,6 +607,7 @@ func newKafkaProducerClients(cfg KafkaProducerConfig) (sarama.SyncProducer, sara
 	return client, nil, err
 }
 
+// defaultKafkaProducerConfig 填充 Kafka producer 默认缓冲和重试配置。
 func defaultKafkaProducerConfig(cfg KafkaProducerConfig) KafkaProducerConfig {
 	if cfg.ChannelBufferSize <= 0 {
 		cfg.ChannelBufferSize = 2000

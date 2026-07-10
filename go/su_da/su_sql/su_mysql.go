@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"go.local/su_errors"
 	slog "go.local/su_log"
@@ -22,6 +22,7 @@ import (
 	//"time"
 )
 
+// MysqlConfig 定义 MySQL DSN、连接池容量和连接/读写/Ping 超时配置。
 type MysqlConfig struct {
 	Uname           string
 	Passwd          string
@@ -32,8 +33,13 @@ type MysqlConfig struct {
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
 	ConnMaxIdleTime time.Duration
+	ConnectTimeout  time.Duration
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	PingTimeout     time.Duration
 }
 
+// MysqlClient 封装 sqlx.DB，并管理连接池重建、关闭和基础 CRUD 操作。
 type MysqlClient struct {
 	Db          *sqlx.DB
 	Uname       string
@@ -49,6 +55,7 @@ type MysqlClient struct {
 	closeErr    error
 }
 
+// NewMysqlClient 使用传统账号参数创建 MySQL client。
 func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns, a_max_idle_conns int) *MysqlClient {
 	cfg := defaultMysqlConfig(MysqlConfig{
 		Uname:        a_uname,
@@ -69,6 +76,7 @@ func NewMysqlClient(a_uname, a_passwd, a_addr, a_dbname string, a_max_open_conns
 	}
 }
 
+// NewMysqlClientWithConfig 使用完整配置创建 MySQL client。
 func NewMysqlClientWithConfig(cfg MysqlConfig) (*MysqlClient, error) {
 	cfg = defaultMysqlConfig(cfg)
 	if cfg.DSN == "" && (cfg.Uname == "" || cfg.Addr == "" || cfg.DbName == "") {
@@ -85,6 +93,7 @@ func NewMysqlClientWithConfig(cfg MysqlConfig) (*MysqlClient, error) {
 	}, nil
 }
 
+// Connect 创建并 Ping 新的 sqlx.DB，成功后替换当前连接池。
 func (mc *MysqlClient) Connect() error {
 	if mc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "mysql client is nil")
@@ -98,7 +107,15 @@ func (mc *MysqlClient) Connect() error {
 		cfg.Addr = firstNonEmpty(cfg.Addr, mc.Addr)
 		cfg.DbName = firstNonEmpty(cfg.DbName, mc.DbName)
 	}
-	db, err := sqlx.Open("mysql", mysqlDSN(cfg))
+	if cfg.DSN == "" && (cfg.Uname == "" || cfg.Addr == "" || cfg.DbName == "") {
+		return su_errors.New(su_errors.CodeInvalidArgument, "mysql config is incomplete")
+	}
+	dsn, err := mysqlDSN(cfg)
+	if err != nil {
+		slog.Error("mysql DSN invalid", zap.Error(err))
+		return su_errors.Wrap(su_errors.CodeInvalidArgument, "mysql dsn invalid", err)
+	}
+	db, err := sqlx.Open("mysql", dsn)
 	if err != nil {
 		slog.Error("mysql 连接failed", zap.Error(err))
 		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "mysql open failed", err)
@@ -107,7 +124,13 @@ func (mc *MysqlClient) Connect() error {
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
-	if err := db.Ping(); err != nil {
+	pingCtx := context.Background()
+	var cancel context.CancelFunc
+	if cfg.PingTimeout > 0 {
+		pingCtx, cancel = context.WithTimeout(context.Background(), cfg.PingTimeout)
+		defer cancel()
+	}
+	if err := db.PingContext(pingCtx); err != nil {
 		_ = db.Close()
 		slog.Error("mysql Ping failed", zap.Error(err))
 		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "mysql ping failed", err)
@@ -131,10 +154,12 @@ func (mc *MysqlClient) Connect() error {
 	return nil
 }
 
+// Reconnect 显式重建 MySQL 连接池。
 func (mc *MysqlClient) Reconnect() error {
 	return mc.Connect()
 }
 
+// dbLocked 在调用方已持有锁时返回当前数据库连接池。
 func (mc *MysqlClient) dbLocked() (*sqlx.DB, error) {
 	if mc == nil || mc.Db == nil {
 		return nil, su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
@@ -142,6 +167,7 @@ func (mc *MysqlClient) dbLocked() (*sqlx.DB, error) {
 	return mc.Db, nil
 }
 
+// Close 关闭当前 MySQL 连接池，并与 Connect/Reconnect 互斥。
 func (mc *MysqlClient) Close() error {
 	if mc == nil {
 		return nil
@@ -163,10 +189,12 @@ func (mc *MysqlClient) Close() error {
 	return mc.closeErr
 }
 
+// Insert 执行插入 SQL，并记录 LastInsertId。
 func (mc *MysqlClient) Insert(a_cmd string, a_parm ...interface{}) error {
 	return mc.InsertContext(context.Background(), a_cmd, a_parm...)
 }
 
+// InsertContext 使用指定 context 执行插入 SQL。
 func (mc *MysqlClient) InsertContext(ctx context.Context, a_cmd string, a_parm ...interface{}) error {
 	r, err := mc.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
@@ -181,10 +209,12 @@ func (mc *MysqlClient) InsertContext(ctx context.Context, a_cmd string, a_parm .
 	return nil
 }
 
+// Update 执行更新 SQL，并记录受影响行数。
 func (mc *MysqlClient) Update(a_cmd string, a_parm ...interface{}) error {
 	return mc.UpdateContext(context.Background(), a_cmd, a_parm...)
 }
 
+// UpdateContext 使用指定 context 执行更新 SQL。
 func (mc *MysqlClient) UpdateContext(ctx context.Context, a_cmd string, a_parm ...interface{}) error {
 	r, err := mc.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
@@ -199,10 +229,12 @@ func (mc *MysqlClient) UpdateContext(ctx context.Context, a_cmd string, a_parm .
 	return nil
 }
 
+// Delete 执行删除 SQL，并记录受影响行数。
 func (mc *MysqlClient) Delete(a_cmd string, a_parm ...interface{}) error {
 	return mc.DeleteContext(context.Background(), a_cmd, a_parm...)
 }
 
+// DeleteContext 使用指定 context 执行删除 SQL。
 func (mc *MysqlClient) DeleteContext(ctx context.Context, a_cmd string, a_parm ...interface{}) error {
 	r, err := mc.ExecContext(ctx, a_cmd, a_parm...)
 	if err != nil {
@@ -217,10 +249,12 @@ func (mc *MysqlClient) DeleteContext(ctx context.Context, a_cmd string, a_parm .
 	return nil
 }
 
+// Select 执行查询 SQL 并将结果写入目标对象。
 func (mc *MysqlClient) Select(a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
 	return mc.SelectContext(context.Background(), a_dest, a_cmd, a_parm...)
 }
 
+// ExecContext 执行写类 SQL，运行时错误会包装为 retryable。
 func (mc *MysqlClient) ExecContext(ctx context.Context, a_cmd string, a_parm ...interface{}) (result sql.Result, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -240,6 +274,7 @@ func (mc *MysqlClient) ExecContext(ctx context.Context, a_cmd string, a_parm ...
 	return result, nil
 }
 
+// SelectContext 使用指定 context 执行查询 SQL，运行时错误会包装为 retryable。
 func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_cmd string, a_parm ...interface{}) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -259,6 +294,7 @@ func (mc *MysqlClient) SelectContext(ctx context.Context, a_dest interface{}, a_
 	return nil
 }
 
+// db 并发安全地返回当前 sqlx.DB。
 func (mc *MysqlClient) db() (*sqlx.DB, error) {
 	if mc == nil {
 		return nil, su_errors.New(su_errors.CodeUnavailable, "mysql client is not connected")
@@ -269,6 +305,7 @@ func (mc *MysqlClient) db() (*sqlx.DB, error) {
 	return db, err
 }
 
+// defaultMysqlConfig 填充 MySQL 连接池和超时默认值。
 func defaultMysqlConfig(cfg MysqlConfig) MysqlConfig {
 	if cfg.MaxOpenConns <= 0 {
 		cfg.MaxOpenConns = 10
@@ -285,16 +322,60 @@ func defaultMysqlConfig(cfg MysqlConfig) MysqlConfig {
 	if cfg.ConnMaxIdleTime <= 0 {
 		cfg.ConnMaxIdleTime = 10 * time.Minute
 	}
+	if cfg.DSN == "" {
+		if cfg.ConnectTimeout <= 0 {
+			cfg.ConnectTimeout = 5 * time.Second
+		}
+		if cfg.ReadTimeout <= 0 {
+			cfg.ReadTimeout = 5 * time.Second
+		}
+		if cfg.WriteTimeout <= 0 {
+			cfg.WriteTimeout = 5 * time.Second
+		}
+	}
+	if cfg.PingTimeout <= 0 {
+		cfg.PingTimeout = 5 * time.Second
+	}
 	return cfg
 }
 
-func mysqlDSN(cfg MysqlConfig) string {
+// mysqlDSN 根据显式 DSN 或拆分字段生成 go-sql-driver/mysql 可用的 DSN。
+func mysqlDSN(cfg MysqlConfig) (string, error) {
 	if cfg.DSN != "" {
-		return cfg.DSN
+		if cfg.ConnectTimeout <= 0 && cfg.ReadTimeout <= 0 && cfg.WriteTimeout <= 0 {
+			return cfg.DSN, nil
+		}
+		dsnCfg, err := mysql.ParseDSN(cfg.DSN)
+		if err != nil {
+			return "", err
+		}
+		applyMysqlTimeouts(dsnCfg, cfg)
+		return dsnCfg.FormatDSN(), nil
 	}
-	return cfg.Uname + ":" + cfg.Passwd + "@tcp(" + cfg.Addr + ")/" + cfg.DbName
+	dsnCfg := mysql.NewConfig()
+	dsnCfg.User = cfg.Uname
+	dsnCfg.Passwd = cfg.Passwd
+	dsnCfg.Net = "tcp"
+	dsnCfg.Addr = cfg.Addr
+	dsnCfg.DBName = cfg.DbName
+	applyMysqlTimeouts(dsnCfg, cfg)
+	return dsnCfg.FormatDSN(), nil
 }
 
+// applyMysqlTimeouts 将连接、读、写超时写入 mysql.Config。
+func applyMysqlTimeouts(dsnCfg *mysql.Config, cfg MysqlConfig) {
+	if cfg.ConnectTimeout > 0 {
+		dsnCfg.Timeout = cfg.ConnectTimeout
+	}
+	if cfg.ReadTimeout > 0 {
+		dsnCfg.ReadTimeout = cfg.ReadTimeout
+	}
+	if cfg.WriteTimeout > 0 {
+		dsnCfg.WriteTimeout = cfg.WriteTimeout
+	}
+}
+
+// firstNonEmpty 返回参数列表中的第一个非空字符串。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {

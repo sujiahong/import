@@ -4,3 +4,177 @@
 
 ///////////////////7.6
 服务端现在添加一个金币存储和闯关存储，登录成功把金币和闯关数据带下去。闯关成功通知服务端记录闯关数据和计算金币数量。
+///////////////////7.9
+如果要基于现在的 su_net / su_mq / su_log / su_da 开发一个完整分布式服务，现有模块更像是“基础通信、MQ、日志、数据访问”。还需要补一层服务治理和业务运行框架。
+
+建议先列这些模块：
+
+1. 服务启动框架
+
+server 或 app 包
+统一加载配置
+初始化日志、DB、Redis、Kafka、网络服务
+管理启动/停止顺序
+捕获系统信号 SIGINT/SIGTERM
+优雅关闭：停止接入新请求、等待任务完成、关闭连接池
+2. 配置中心
+
+本地 yaml/json/toml 配置加载
+环境变量覆盖
+多环境配置：dev/test/prod
+配置校验
+后续可接入 etcd/nacos/consul
+3. 服务注册与发现
+
+注册当前节点地址、服务名、版本、权重
+心跳续约
+下线摘除
+客户端服务发现
+可选实现：
+etcd
+consul
+nacos
+Redis 临时 key 简化版
+4. RPC/内部协议层
+su_net 现在提供 TCP/WS/gnet 网络层，但还需要服务层封装：
+
+route id / pack id 到 handler 的统一注册
+请求上下文 context.Context
+超时控制
+错误码规范
+middleware 链
+请求日志
+panic recover
+鉴权
+限流
+tracing id 透传
+5. 节点间调用 Client
+
+服务发现后选择节点
+连接池
+负载均衡：
+round-robin
+random
+least connections
+consistent hash
+请求超时
+重试策略
+熔断
+降级
+失败节点摘除
+6. 任务调度与异步任务
+
+本地 worker pool 封装
+延迟任务
+定时任务
+分布式任务锁
+失败重试
+死信队列
+任务幂等
+7. MQ 消费框架
+su_mq 有基础 Kafka/Redis 读取后，还需要业务消费层：
+
+consumer group 管理
+handler 注册
+并发 worker 配置
+ack/commit 策略
+retry 策略
+dead letter topic/list
+消费幂等
+消费 lag 监控
+shutdown drain
+8. 数据一致性工具
+
+分布式锁
+幂等 key
+去重表
+事务封装
+outbox pattern
+本地事务 + MQ 投递一致性
+乐观锁版本号
+9. 监控指标
+
+QPS
+RT / P95 / P99
+错误率
+goroutine 数
+连接数
+队列长度
+Kafka lag
+Redis/MySQL pool 状态
+Prometheus exporter
+10. 链路追踪
+
+trace id / request id
+日志自动带 trace id
+跨 RPC / MQ 透传
+OpenTelemetry 可选
+11. 错误码和响应规范
+
+统一错误码
+业务错误 / 系统错误区分
+可重试错误标记
+RPC 返回结构规范
+MQ 消费错误分类
+12. 权限与安全
+
+内部服务 token
+签名校验
+TLS 可选
+IP 白名单
+请求大小限制
+频率限制
+防止非法包/恶意包
+13. 限流、熔断、降级
+
+单机限流
+分布式限流
+熔断器
+慢请求保护
+过载保护
+队列满后的背压策略
+14. 分布式 ID
+
+snowflake
+segment id
+Redis incr 简化版
+用于 request id、订单 id、消息 id 等
+15. 健康检查
+
+/health
+/ready
+DB/Redis/Kafka 依赖检查
+网络服务状态检查
+注册中心续约状态检查
+16. 管理接口
+
+查看连接数
+查看节点状态
+查看 goroutine/pprof
+动态调整日志等级
+动态摘除节点
+查看队列积压
+17. 部署相关
+
+Dockerfile
+systemd/k8s 配置
+配置模板
+启动脚本
+日志目录
+端口规范
+滚动发布支持
+优先级建议：
+
+app/server 启停框架
+配置模块
+服务注册发现
+RPC 服务层封装
+客户端连接池 + 负载均衡
+统一错误码/context/middleware
+监控指标
+MQ 消费框架完善
+分布式锁/幂等/任务框架
+tracing、熔断、限流、管理接口
+
+
+连接失败、断线重连、Close/重连竞态、读写超时、goroutine 退出、错误是否可重试。

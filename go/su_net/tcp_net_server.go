@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// TcpServer 监听 TCP 连接，并将业务包分发到 worker 池处理。
 type TcpServer struct {
 	Addr         string
 	listener     *net.TCPListener
@@ -24,10 +25,12 @@ type TcpServer struct {
 	writeTimeout int64
 }
 
+// CreateTcpServer 使用默认配置创建并启动 TCP server。
 func CreateTcpServer(addr string, handlers ...TcpHandler) (*TcpServer, error) {
 	return CreateTcpServerWithConfig(addr, DefaultTcpNetConfig(), handlers...)
 }
 
+// CreateTcpServerWithConfig 使用指定配置创建并启动 TCP server。
 func CreateTcpServerWithConfig(addr string, cfg TcpNetConfig, handlers ...TcpHandler) (*TcpServer, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
@@ -51,6 +54,7 @@ func CreateTcpServerWithConfig(addr string, cfg TcpNetConfig, handlers ...TcpHan
 	return server, nil
 }
 
+// acceptLoop 接受新 TCP 连接，维护连接表并启动每条连接的读循环。
 func (ts *TcpServer) acceptLoop() {
 	for {
 		conn, err := ts.listener.AcceptTCP()
@@ -89,6 +93,7 @@ func (ts *TcpServer) acceptLoop() {
 	}
 }
 
+// Close 关闭监听、所有连接和 worker 池。
 func (ts *TcpServer) Close() error {
 	if ts == nil || ts.listener == nil {
 		return nil
@@ -112,6 +117,7 @@ func (ts *TcpServer) Close() error {
 	return err
 }
 
+// ConnCount 返回当前存活的 TCP 连接数。
 func (ts *TcpServer) ConnCount() int {
 	if ts == nil {
 		return 0
@@ -121,6 +127,7 @@ func (ts *TcpServer) ConnCount() int {
 	return len(ts.conns)
 }
 
+// SetWriteTimeout 更新服务端默认写超时，并同步到当前所有连接。
 func (ts *TcpServer) SetWriteTimeout(timeout time.Duration) {
 	if ts == nil {
 		return
@@ -137,6 +144,7 @@ func (ts *TcpServer) SetWriteTimeout(timeout time.Duration) {
 	}
 }
 
+// WriteTimeout 返回服务端当前默认写超时。
 func (ts *TcpServer) WriteTimeout() time.Duration {
 	if ts == nil {
 		return 0

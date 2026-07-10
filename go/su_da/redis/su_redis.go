@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// RedisConfig 定义 Redis 连接池、数据库和超时配置。
 type RedisConfig struct {
 	RemoteAddr   string
 	ConnNum      int
@@ -23,17 +24,20 @@ type RedisConfig struct {
 	Wait         bool
 }
 
+// RedisClient 封装 redigo 连接池，并提供并发安全的连接池重建和关闭能力。
 type RedisClient struct {
 	pool        *redis.Pool /////redis连接池
 	RemoteAddr  string
 	ConnNum     int
 	cfg         RedisConfig
+	dial        func(RedisConfig) (redis.Conn, error)
 	mu          sync.RWMutex
 	reconnectMu sync.Mutex
 	closeOnce   sync.Once
 	closeErr    error
 }
 
+// NewRedisClient 使用地址和连接数创建 Redis client。
 func NewRedisClient(redis_addr string, conn_num int) *RedisClient {
 	cfg := defaultRedisConfig(RedisConfig{RemoteAddr: redis_addr, ConnNum: conn_num, Wait: true})
 	cfg.RemoteAddr = redis_addr
@@ -41,9 +45,11 @@ func NewRedisClient(redis_addr string, conn_num int) *RedisClient {
 		RemoteAddr: cfg.RemoteAddr,
 		ConnNum:    cfg.ConnNum,
 		cfg:        cfg,
+		dial:       dialRedis,
 	}
 }
 
+// NewRedisClientWithConfig 使用完整配置创建 Redis client。
 func NewRedisClientWithConfig(cfg RedisConfig) (*RedisClient, error) {
 	cfg = defaultRedisConfig(cfg)
 	if cfg.RemoteAddr == "" {
@@ -53,9 +59,11 @@ func NewRedisClientWithConfig(cfg RedisConfig) (*RedisClient, error) {
 		RemoteAddr: cfg.RemoteAddr,
 		ConnNum:    cfg.ConnNum,
 		cfg:        cfg,
+		dial:       dialRedis,
 	}, nil
 }
 
+// Connect 创建新的 Redis 连接池，首次 PING 成功后发布到 client。
 func (rc *RedisClient) Connect() error {
 	if rc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "redis client is nil")
@@ -69,18 +77,17 @@ func (rc *RedisClient) Connect() error {
 	if cfg.RemoteAddr == "" {
 		return su_errors.New(su_errors.CodeInvalidArgument, "redis remote addr is empty")
 	}
+	dial := rc.dial
+	if dial == nil {
+		dial = dialRedis
+	}
 	pool := &redis.Pool{
 		MaxIdle:     cfg.MaxIdle,
 		MaxActive:   cfg.MaxActive,
 		IdleTimeout: cfg.IdleTimeout,
 		Wait:        cfg.Wait,
 		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial("tcp", cfg.RemoteAddr,
-				redis.DialDatabase(cfg.DB),
-				redis.DialConnectTimeout(cfg.DialTimeout),
-				redis.DialReadTimeout(cfg.ReadTimeout),
-				redis.DialWriteTimeout(cfg.WriteTimeout),
-			)
+			c, err := dial(cfg)
 			slog.Info("dial ...... ", zap.Any("RemoteAddr: ", cfg.RemoteAddr), zap.Error(err))
 			return c, err
 		},
@@ -93,12 +100,17 @@ func (rc *RedisClient) Connect() error {
 			return err
 		},
 	}
+	if err := pingRedisPool(pool, cfg.RemoteAddr); err != nil {
+		_ = pool.Close()
+		return err
+	}
 	rc.mu.Lock()
 	oldPool := rc.pool
 	rc.pool = pool
 	rc.cfg = cfg
 	rc.RemoteAddr = cfg.RemoteAddr
 	rc.ConnNum = cfg.ConnNum
+	rc.dial = dial
 	rc.closeOnce = sync.Once{}
 	rc.closeErr = nil
 	rc.mu.Unlock()
@@ -109,10 +121,37 @@ func (rc *RedisClient) Connect() error {
 	return nil
 }
 
+// dialRedis 根据配置建立单条 Redis TCP 连接。
+func dialRedis(cfg RedisConfig) (redis.Conn, error) {
+	return redis.Dial("tcp", cfg.RemoteAddr,
+		redis.DialDatabase(cfg.DB),
+		redis.DialConnectTimeout(cfg.DialTimeout),
+		redis.DialReadTimeout(cfg.ReadTimeout),
+		redis.DialWriteTimeout(cfg.WriteTimeout),
+	)
+}
+
+// pingRedisPool 从连接池借出连接并执行 PING，用于连接池发布前的健康检查。
+func pingRedisPool(pool *redis.Pool, remoteAddr string) error {
+	c := pool.Get()
+	defer c.Close()
+	if err := c.Err(); err != nil {
+		slog.Error("redis initial connection failed", zap.Any("RemoteAddr: ", remoteAddr), zap.Error(err))
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "redis connection error", err)
+	}
+	if _, err := c.Do("PING"); err != nil {
+		slog.Error("redis initial ping failed", zap.Any("RemoteAddr: ", remoteAddr), zap.Error(err))
+		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "redis ping failed", err)
+	}
+	return nil
+}
+
+// Reconnect 重建 Redis 连接池；运行时命令错误不会自动调用该方法。
 func (rc *RedisClient) Reconnect() error {
 	return rc.Connect()
 }
 
+// Test 使用单连接执行简单写入，主要用于手工连通性验证。
 func (rc *RedisClient) Test() {
 	c, err := redis.Dial("tcp", rc.RemoteAddr)
 	if err != nil {
@@ -126,6 +165,7 @@ func (rc *RedisClient) Test() {
 	return
 }
 
+// Close 关闭当前 Redis 连接池，并与 Connect/Reconnect 互斥。
 func (rc *RedisClient) Close() error {
 	if rc == nil {
 		return nil
@@ -146,6 +186,7 @@ func (rc *RedisClient) Close() error {
 	return rc.closeErr
 }
 
+// Do 从连接池借出连接并执行 Redis 命令，连接或命令错误会包装为 retryable。
 func (rc *RedisClient) Do(cmd string, args ...interface{}) (interface{}, error) {
 	if rc == nil {
 		return nil, su_errors.New(su_errors.CodeUnavailable, "redis client is not connected")
@@ -168,6 +209,7 @@ func (rc *RedisClient) Do(cmd string, args ...interface{}) (interface{}, error) 
 	return reply, nil
 }
 
+// defaultRedisConfig 填充 Redis 连接池和超时默认值。
 func defaultRedisConfig(cfg RedisConfig) RedisConfig {
 	if cfg.ConnNum <= 0 {
 		cfg.ConnNum = 1

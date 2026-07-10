@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// KafkaBackpressureMode 定义消费处理队列满时的背压策略。
 type KafkaBackpressureMode int
 
 const (
@@ -22,20 +23,13 @@ const (
 
 var newSaramaConsumer = sarama.NewConsumer
 
-/*
-	msg *sarama.ConsumerMessage
-
-msg.Topic       // topic 名
-msg.Partition   // 分区 id
-msg.Offset      // 当前消息 offset
-msg.Key         // 消息 key，[]byte
-msg.Value       // 消息内容，[]byte
-msg.Headers     // Kafka headers
-msg.Timestamp   // 消息时间
-*/
+// HandleFunc 是旧版按分区回调的 Kafka 消息处理函数。
 type HandleFunc func(a_partion_id int32, msg *sarama.ConsumerMessage)
+
+// HandleMessageFunc 是新版带 context 的 Kafka 消息处理函数。
 type HandleMessageFunc func(ctx context.Context, msg *sarama.ConsumerMessage) error
 
+// KafkaConsumerConfig 定义 Kafka consumer 的连接、并发、关闭和背压配置。
 type KafkaConsumerConfig struct {
 	AddrSlice        []string
 	Topic            string
@@ -48,6 +42,7 @@ type KafkaConsumerConfig struct {
 	LogMessages      bool
 }
 
+// KafkaConsumer 封装 sarama.Consumer，并管理分区消费 goroutine 与处理 worker 池。
 type KafkaConsumer struct {
 	AddrSlice        []string
 	Topic            string
@@ -72,6 +67,7 @@ type KafkaConsumer struct {
 	logMessages      bool
 }
 
+// NewKafkaConsumer 使用旧版分区回调创建 Kafka consumer。
 func NewKafkaConsumer(a_addr []string, a_topic, a_cli_id string, a_func HandleFunc) *KafkaConsumer {
 	kc := NewKafkaConsumerWithConfig(KafkaConsumerConfig{
 		AddrSlice: a_addr,
@@ -84,6 +80,7 @@ func NewKafkaConsumer(a_addr []string, a_topic, a_cli_id string, a_func HandleFu
 	return kc
 }
 
+// NewKafkaConsumerWithConfig 使用完整配置和新版消息回调创建 Kafka consumer。
 func NewKafkaConsumerWithConfig(cfg KafkaConsumerConfig, handler HandleMessageFunc) *KafkaConsumer {
 	cfg = defaultKafkaConsumerConfig(cfg)
 	client, err := newKafkaConsumerClient(cfg)
@@ -113,6 +110,7 @@ func NewKafkaConsumerWithConfig(cfg KafkaConsumerConfig, handler HandleMessageFu
 	return kc
 }
 
+// ConsumeAllPartion 获取 topic 的所有分区并为每个分区启动消费循环。
 func (kc *KafkaConsumer) ConsumeAllPartion() {
 	client := kc.getClient()
 	if kc == nil || client == nil {
@@ -142,6 +140,7 @@ func (kc *KafkaConsumer) ConsumeAllPartion() {
 	}
 }
 
+// ConsumeOnePartion 为指定分区启动独立 goroutine，断线或通道关闭后按配置重试订阅。
 func (kc *KafkaConsumer) ConsumeOnePartion(a_partion_id int32) {
 	if kc == nil || kc.getClient() == nil {
 		slog.Error("kafka consumer is not connected")
@@ -181,6 +180,7 @@ func (kc *KafkaConsumer) ConsumeOnePartion(a_partion_id int32) {
 	}()
 }
 
+// consumePartitionMessages 读取分区消息与错误；返回 true 表示需要外层重建 PartitionConsumer。
 func (kc *KafkaConsumer) consumePartitionMessages(pc sarama.PartitionConsumer, a_partion_id int32) bool {
 	defer pc.AsyncClose()
 	for {
@@ -212,6 +212,7 @@ func (kc *KafkaConsumer) consumePartitionMessages(pc sarama.PartitionConsumer, a
 	}
 }
 
+// waitRetry 在重试间隔或 consumer 关闭之间等待，返回 false 表示应停止消费循环。
 func (kc *KafkaConsumer) waitRetry(partitionID int32) bool {
 	timer := time.NewTimer(kc.retryInterval)
 	defer timer.Stop()
@@ -226,6 +227,7 @@ func (kc *KafkaConsumer) waitRetry(partitionID int32) bool {
 	}
 }
 
+// getClient 并发安全地返回当前 sarama consumer。
 func (kc *KafkaConsumer) getClient() sarama.Consumer {
 	if kc == nil {
 		return nil
@@ -235,6 +237,7 @@ func (kc *KafkaConsumer) getClient() sarama.Consumer {
 	return kc.client
 }
 
+// reconnectConsumer 重建 sarama consumer，并在交换完成后关闭旧 client。
 func (kc *KafkaConsumer) reconnectConsumer() error {
 	if kc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "kafka consumer is nil")
@@ -266,6 +269,7 @@ func (kc *KafkaConsumer) reconnectConsumer() error {
 	return nil
 }
 
+// Close 停止消费、关闭 sarama consumer，并等待分区 goroutine 和 worker 池退出。
 func (kc *KafkaConsumer) Close() {
 	if kc == nil {
 		return
@@ -303,6 +307,7 @@ func (kc *KafkaConsumer) Close() {
 	})
 }
 
+// newKafkaConsumerClient 根据配置创建底层 sarama consumer。
 func newKafkaConsumerClient(cfg KafkaConsumerConfig) (sarama.Consumer, error) {
 	config := sarama.NewConfig()
 	config.ClientID = cfg.ClientID
@@ -313,6 +318,7 @@ func newKafkaConsumerClient(cfg KafkaConsumerConfig) (sarama.Consumer, error) {
 	return newSaramaConsumer(cfg.AddrSlice, config)
 }
 
+// dispatchMessage 将 Kafka 消息投递到 worker 池，并按配置选择阻塞或丢弃策略。
 func (kc *KafkaConsumer) dispatchMessage(msg *sarama.ConsumerMessage, partionID int32) {
 	kc.poolMu.Lock()
 	pool := kc.pool
@@ -346,6 +352,7 @@ func (kc *KafkaConsumer) dispatchMessage(msg *sarama.ConsumerMessage, partionID 
 	}
 }
 
+// ensurePool 按分区数量和配置惰性创建消息处理 worker 池。
 func (kc *KafkaConsumer) ensurePool(partitionCount int) {
 	kc.poolMu.Lock()
 	defer kc.poolMu.Unlock()
@@ -366,6 +373,7 @@ func (kc *KafkaConsumer) ensurePool(partitionCount int) {
 	kc.pool = su_util.NewGoPool(workerNum, kc.queueSize)
 }
 
+// defaultKafkaConsumerConfig 填充 Kafka consumer 的默认队列、关闭和重试配置。
 func defaultKafkaConsumerConfig(cfg KafkaConsumerConfig) KafkaConsumerConfig {
 	if cfg.QueueSize == 0 {
 		cfg.QueueSize = 4096

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"go.local/su_errors"
 )
@@ -53,8 +54,8 @@ func TestNewMysqlClientIncompleteConfigDoesNotReturnNil(t *testing.T) {
 	}
 	if err := mc.Connect(); err == nil {
 		t.Fatal("expected connect error for incomplete mysql config")
-	} else if su_errors.CodeOf(err) != su_errors.CodeUnavailable {
-		t.Fatalf("error code = %d, want unavailable", su_errors.CodeOf(err))
+	} else if su_errors.CodeOf(err) != su_errors.CodeInvalidArgument {
+		t.Fatalf("error code = %d, want invalid argument", su_errors.CodeOf(err))
 	}
 }
 
@@ -125,6 +126,68 @@ func TestMysqlConfigConstructorDefaults(t *testing.T) {
 	}
 	if mc.cfg.ConnMaxLifetime != time.Hour {
 		t.Fatalf("ConnMaxLifetime = %v, want %v", mc.cfg.ConnMaxLifetime, time.Hour)
+	}
+	if mc.cfg.ConnectTimeout != 5*time.Second {
+		t.Fatalf("ConnectTimeout = %v, want 5s", mc.cfg.ConnectTimeout)
+	}
+	if mc.cfg.ReadTimeout != 5*time.Second {
+		t.Fatalf("ReadTimeout = %v, want 5s", mc.cfg.ReadTimeout)
+	}
+	if mc.cfg.WriteTimeout != 5*time.Second {
+		t.Fatalf("WriteTimeout = %v, want 5s", mc.cfg.WriteTimeout)
+	}
+	if mc.cfg.PingTimeout != 5*time.Second {
+		t.Fatalf("PingTimeout = %v, want 5s", mc.cfg.PingTimeout)
+	}
+}
+
+func TestMysqlDSNIncludesTimeoutsForSplitConfig(t *testing.T) {
+	dsn, err := mysqlDSN(defaultMysqlConfig(MysqlConfig{
+		Uname:  "root",
+		Passwd: "secret",
+		Addr:   "127.0.0.1:3306",
+		DbName: "test",
+	}))
+	if err != nil {
+		t.Fatalf("mysqlDSN() error = %v", err)
+	}
+	cfg, err := mysqlDriver.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN() error = %v", err)
+	}
+	if cfg.Timeout != 5*time.Second {
+		t.Fatalf("Timeout = %v, want 5s", cfg.Timeout)
+	}
+	if cfg.ReadTimeout != 5*time.Second {
+		t.Fatalf("ReadTimeout = %v, want 5s", cfg.ReadTimeout)
+	}
+	if cfg.WriteTimeout != 5*time.Second {
+		t.Fatalf("WriteTimeout = %v, want 5s", cfg.WriteTimeout)
+	}
+}
+
+func TestMysqlDSNAppliesExplicitTimeoutsToProvidedDSN(t *testing.T) {
+	dsn, err := mysqlDSN(MysqlConfig{
+		DSN:            "u:p@tcp(127.0.0.1:3306)/db",
+		ConnectTimeout: 2 * time.Second,
+		ReadTimeout:    3 * time.Second,
+		WriteTimeout:   4 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("mysqlDSN() error = %v", err)
+	}
+	cfg, err := mysqlDriver.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN() error = %v", err)
+	}
+	if cfg.Timeout != 2*time.Second {
+		t.Fatalf("Timeout = %v, want 2s", cfg.Timeout)
+	}
+	if cfg.ReadTimeout != 3*time.Second {
+		t.Fatalf("ReadTimeout = %v, want 3s", cfg.ReadTimeout)
+	}
+	if cfg.WriteTimeout != 4*time.Second {
+		t.Fatalf("WriteTimeout = %v, want 4s", cfg.WriteTimeout)
 	}
 }
 

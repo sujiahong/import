@@ -12,8 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
+// WSHandler 处理 WebSocket 连接上解析出的业务数据包。
 type WSHandler func(*WSConn, *DataProtocol)
 
+// WSConn 封装 gorilla/websocket.Conn，并维护收包缓存、写锁和心跳状态。
 type WSConn struct {
 	conn         *websocket.Conn
 	closed       int32
@@ -26,10 +28,12 @@ type WSConn struct {
 	writeTimeout int64
 }
 
+// newWSConn 使用默认写超时创建 WebSocket 连接包装。
 func newWSConn(conn *websocket.Conn) *WSConn {
 	return newWSConnWithWriteTimeout(conn, DEFAULT_WRITE_TIMEOUT)
 }
 
+// newWSConnWithWriteTimeout 使用指定写超时创建 WebSocket 连接包装。
 func newWSConnWithWriteTimeout(conn *websocket.Conn, writeTimeout time.Duration) *WSConn {
 	return &WSConn{
 		conn:         conn,
@@ -38,6 +42,7 @@ func newWSConnWithWriteTimeout(conn *websocket.Conn, writeTimeout time.Duration)
 	}
 }
 
+// SetWriteTimeout 更新当前连接的单次写超时。
 func (wc *WSConn) SetWriteTimeout(timeout time.Duration) {
 	if wc == nil {
 		return
@@ -45,6 +50,7 @@ func (wc *WSConn) SetWriteTimeout(timeout time.Duration) {
 	atomic.StoreInt64(&wc.writeTimeout, int64(timeout))
 }
 
+// WriteTimeout 返回当前连接的单次写超时。
 func (wc *WSConn) WriteTimeout() time.Duration {
 	if wc == nil {
 		return 0
@@ -52,6 +58,7 @@ func (wc *WSConn) WriteTimeout() time.Duration {
 	return time.Duration(atomic.LoadInt64(&wc.writeTimeout))
 }
 
+// Send 编码 DataProtocol 并作为二进制 WebSocket 消息发送。
 func (wc *WSConn) Send(dp *DataProtocol) error {
 	bs, err := Encode(dp)
 	if err != nil {
@@ -60,6 +67,7 @@ func (wc *WSConn) Send(dp *DataProtocol) error {
 	return wc.SendBytes(bs)
 }
 
+// SendBytes 发送已编码的二进制 WebSocket 消息。
 func (wc *WSConn) SendBytes(bs []byte) error {
 	if wc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "websocket conn is nil")
@@ -81,6 +89,7 @@ func (wc *WSConn) SendBytes(bs []byte) error {
 	return nil
 }
 
+// Close 关闭 WebSocket 连接并清理心跳状态。
 func (wc *WSConn) Close() error {
 	if wc == nil {
 		return nil
@@ -97,6 +106,7 @@ func (wc *WSConn) Close() error {
 	return err
 }
 
+// ClearHeartbeat 清空未收到响应的心跳记录。
 func (wc *WSConn) ClearHeartbeat() {
 	if wc == nil {
 		return
@@ -106,6 +116,7 @@ func (wc *WSConn) ClearHeartbeat() {
 	atomic.StoreInt32(&wc.checkTimes, 0)
 }
 
+// Ping 发送一次应用层心跳请求。
 func (wc *WSConn) Ping() error {
 	routeID := nextRouteID()
 	microTime := uint64(time.Now().UnixNano() / 1000)
@@ -132,6 +143,7 @@ func (wc *WSConn) Ping() error {
 	return nil
 }
 
+// CheckPong 检查未完成心跳并在连续未响应时关闭连接。
 func (wc *WSConn) CheckPong() {
 	if wc == nil || atomic.LoadInt32(&wc.closed) == 1 {
 		return
@@ -153,6 +165,7 @@ func (wc *WSConn) CheckPong() {
 	}
 }
 
+// readLoop 持续读取 WebSocket 二进制消息并交给 recv 解析。
 func (wc *WSConn) readLoop(handler WSHandler) {
 	defer wc.Close()
 	for {
@@ -173,6 +186,7 @@ func (wc *WSConn) readLoop(handler WSHandler) {
 	}
 }
 
+// recv 处理 WebSocket 消息中的粘包/半包，并将完整业务包交给 handler。
 func (wc *WSConn) recv(frame []byte, handler WSHandler) error {
 	wc.recvData = append(wc.recvData, frame...)
 	for {
@@ -217,6 +231,7 @@ func (wc *WSConn) recv(frame []byte, handler WSHandler) error {
 	}
 }
 
+// handleControlPacket 处理 PING/PONG 控制包，返回 true 表示该包已被内部消费。
 func (wc *WSConn) handleControlPacket(dp *DataProtocol) (bool, error) {
 	switch dp.Head.PackId {
 	case PING:

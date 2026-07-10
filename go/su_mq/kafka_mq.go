@@ -9,6 +9,7 @@ import (
 	"go.local/su_errors"
 )
 
+// KafkaBackpressureMode 复用底层 Kafka consumer 的背压策略类型。
 type KafkaBackpressureMode = skafka.KafkaBackpressureMode
 
 const (
@@ -16,6 +17,7 @@ const (
 	KafkaBackpressureDrop  = skafka.KafkaBackpressureDrop
 )
 
+// KafkaConsumerConfig 定义 su_mq Kafka consumer 的连接、处理器和背压配置。
 type KafkaConsumerConfig struct {
 	AddrSlice        []string
 	Topic            string
@@ -32,13 +34,18 @@ type KafkaConsumerConfig struct {
 	Metrics          MQMetrics
 }
 
+// KafkaMessageHandler 是带 context 的 Kafka 消息处理函数。
 type KafkaMessageHandler = skafka.HandleMessageFunc
+
+// KafkaPartitionHandler 是旧版按分区消费的 Kafka 消息处理函数。
 type KafkaPartitionHandler = skafka.HandleFunc
 
+// KafkaConsumer 封装底层 su_da/kafka consumer，并接入通用 Processor。
 type KafkaConsumer struct {
 	consumer *skafka.KafkaConsumer
 }
 
+// NewKafkaConsumer 创建 Kafka consumer，并用 Processor 包装业务 handler。
 func NewKafkaConsumer(cfg KafkaConsumerConfig, handler KafkaMessageHandler) (*KafkaConsumer, error) {
 	if len(cfg.AddrSlice) == 0 {
 		return nil, su_errors.New(su_errors.CodeInvalidArgument, "kafka addr slice is empty")
@@ -72,6 +79,7 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler KafkaMessageHandler) (*Ka
 	return &KafkaConsumer{consumer: consumer}, nil
 }
 
+// NewKafkaPartitionConsumer 创建旧版按分区回调的 Kafka consumer。
 func NewKafkaPartitionConsumer(addr []string, topic, clientID string, handler KafkaPartitionHandler) (*KafkaConsumer, error) {
 	if len(addr) == 0 {
 		return nil, su_errors.New(su_errors.CodeInvalidArgument, "kafka addr slice is empty")
@@ -89,6 +97,7 @@ func NewKafkaPartitionConsumer(addr []string, topic, clientID string, handler Ka
 	return &KafkaConsumer{consumer: consumer}, nil
 }
 
+// StartAllPartitions 启动 topic 下全部分区的消费。
 func (kc *KafkaConsumer) StartAllPartitions() error {
 	if kc == nil || kc.consumer == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "kafka consumer is nil")
@@ -97,6 +106,7 @@ func (kc *KafkaConsumer) StartAllPartitions() error {
 	return nil
 }
 
+// StartPartition 启动指定分区的消费。
 func (kc *KafkaConsumer) StartPartition(partitionID int32) error {
 	if kc == nil || kc.consumer == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "kafka consumer is nil")
@@ -105,6 +115,7 @@ func (kc *KafkaConsumer) StartPartition(partitionID int32) error {
 	return nil
 }
 
+// Close 关闭底层 Kafka consumer。
 func (kc *KafkaConsumer) Close() {
 	if kc == nil || kc.consumer == nil {
 		return
@@ -112,6 +123,7 @@ func (kc *KafkaConsumer) Close() {
 	kc.consumer.Close()
 }
 
+// processorOptionsFromKafkaConfig 提取 Kafka consumer 的通用 Processor 配置。
 func processorOptionsFromKafkaConfig(cfg KafkaConsumerConfig) ProcessorOptions {
 	return ProcessorOptions{
 		RetryPolicy: cfg.RetryPolicy,
@@ -121,6 +133,7 @@ func processorOptionsFromKafkaConfig(cfg KafkaConsumerConfig) ProcessorOptions {
 	}
 }
 
+// kafkaMessageToMessage 将 sarama.ConsumerMessage 转为 su_mq 统一消息模型。
 func kafkaMessageToMessage(topic string, msg *sarama.ConsumerMessage) Message {
 	if msg == nil {
 		return Message{Source: "kafka", Topic: topic}

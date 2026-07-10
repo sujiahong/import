@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// GTcpServer 基于 gnet 提供 TCP 服务端连接管理、包分发和请求响应处理。
 type GTcpServer struct {
 	gnet.BuiltinEventEngine                 ////匿名字段   事件服务
 	pool                    *su_util.GoPool ///协程池
@@ -27,17 +28,20 @@ type GTcpServer struct {
 	closeTimeout            time.Duration
 }
 
+// OnBoot 是 gnet 服务启动完成回调。
 func (ts *GTcpServer) OnBoot(eng gnet.Engine) (action gnet.Action) {
 	slog.Info("server init finish !!!!", zap.String("listen addr", ts.protoAddr))
 	atomic.StoreInt32(&ts.Stat, 2)
 	return
 }
 
+// OnShutdown 是 gnet 服务关闭回调。
 func (ts *GTcpServer) OnShutdown(eng gnet.Engine) {
 	slog.Info("server shutdown !!!!", zap.String("listen addr", ts.protoAddr))
 	atomic.StoreInt32(&ts.Stat, 0)
 }
 
+// OnOpen 是 gnet 新连接回调，会创建并保存 GNetConn。
 func (ts *GTcpServer) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	slog.Info("new conn ", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()))
 	gconn := NewGnetConn(c)
@@ -46,6 +50,7 @@ func (ts *GTcpServer) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	return
 }
 
+// OnClose 是 gnet 连接关闭回调，会标记连接关闭并从连接表移除。
 func (ts *GTcpServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	slog.Info("close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.String("local addr", c.LocalAddr().String()),
 		zap.Error(err))
@@ -56,6 +61,7 @@ func (ts *GTcpServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	return
 }
 
+// pingHandler 处理客户端 PING 并返回 PONG。
 func pingHandler(gnc *GNetConn, rq_dp *DataProtocol) {
 	var rs_dp DataProtocol
 	micro_time := uint64(time.Now().UnixNano() / 1000)
@@ -86,6 +92,7 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol) {
 	return
 }
 
+// OnTraffic 是 gnet 读事件回调，会解析完整包并分发处理。
 func (ts *GTcpServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	frame, err := c.Next(-1)
 	if err != nil {
@@ -106,6 +113,7 @@ func (ts *GTcpServer) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	return
 }
 
+// dispatch 根据配置选择在线处理或提交到 worker 池处理。
 func (ts *GTcpServer) dispatch(gconn *GNetConn, dp *DataProtocol) {
 	taskDP := *dp
 	switch ts.dispatchMode {
@@ -120,6 +128,7 @@ func (ts *GTcpServer) dispatch(gconn *GNetConn, dp *DataProtocol) {
 	}
 }
 
+// handleServerPacket 处理服务端收到的 PING、raw 包或已注册请求包。
 func (ts *GTcpServer) handleServerPacket(gconn *GNetConn, dp *DataProtocol) {
 	if dp.Head.PackId == PING {
 		pingHandler(gconn, dp)
@@ -169,6 +178,7 @@ func (ts *GTcpServer) handleServerPacket(gconn *GNetConn, dp *DataProtocol) {
 	}
 }
 
+// Close 停止 gnet server 并等待 worker 池排空。
 func (ts *GTcpServer) Close() {
 	if ts == nil {
 		return
@@ -179,17 +189,18 @@ func (ts *GTcpServer) Close() {
 		if timeout <= 0 {
 			timeout = DEFAULT_CLOSE_TIMEOUT
 		}
-		if ts.pool != nil && !ts.pool.StopAndDrain(timeout) {
-			slog.Warn("gnet server pool drain timeout")
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		if err := gnet.Stop(ctx, ts.protoAddr); err != nil {
 			slog.Error("gnet server stop failed", zap.String("addr", ts.protoAddr), zap.Error(err))
 		}
 		cancel()
+		if ts.pool != nil && !ts.pool.StopAndDrain(timeout) {
+			slog.Warn("gnet server pool drain timeout")
+		}
 	})
 }
 
+// State 返回服务端状态：0 停止、1 初始化、2 启动。
 func (ts *GTcpServer) State() int32 {
 	if ts == nil {
 		return 0
@@ -197,6 +208,7 @@ func (ts *GTcpServer) State() int32 {
 	return atomic.LoadInt32(&ts.Stat)
 }
 
+// ConnCount 返回当前活跃 gnet 连接数量。
 func (ts *GTcpServer) ConnCount() int {
 	if ts == nil {
 		return 0
@@ -209,6 +221,7 @@ func (ts *GTcpServer) ConnCount() int {
 	return count
 }
 
+// RegisterHandler 注册请求/响应包 ID、proto 模板和处理函数。
 func (ts *GTcpServer) RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_id uint32, a_rs proto.Message, a_hndle HandleFuncType) {
 	rqType, err := newProtoType(a_rq)
 	if err != nil {
@@ -224,6 +237,7 @@ func (ts *GTcpServer) RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_i
 	ts.regHandlerMap.Store(a_rq_id, st)
 }
 
+// Run 阻塞运行 gnet TCP server。
 func (ts *GTcpServer) Run() {
 	paddr := ts.protoAddr
 	err := gnet.Run(ts, paddr, gnet.WithMulticore(true))
@@ -233,22 +247,26 @@ func (ts *GTcpServer) Run() {
 	}
 }
 
+// CreateGNetServer 创建 gnet TCP server，但不立即运行。
 func CreateGNetServer(a_addr string) *GTcpServer {
 	ts := &GTcpServer{dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT}
 	ts.pool = su_util.NewGoPool(DEFAULT_POOL_WORKERS, DEFAULT_POOL_QUEUE_SIZE)
 	return ts
 }
 
+// CreateServer 是 CreateGNetServer 的兼容别名。
 func CreateServer(a_addr string) *GTcpServer {
 	return CreateGNetServer(a_addr)
 }
 
+// CreateGNetRawServer 创建 raw 模式 gnet TCP server。
 func CreateGNetRawServer(a_addr string, handler GNetRawHandler) *GTcpServer {
 	ts := CreateGNetServer(a_addr)
 	ts.rawHandler = handler
 	return ts
 }
 
+// SetRawHandler 设置 raw 数据包处理函数。
 func (ts *GTcpServer) SetRawHandler(handler GNetRawHandler) {
 	if ts == nil {
 		return
@@ -256,6 +274,7 @@ func (ts *GTcpServer) SetRawHandler(handler GNetRawHandler) {
 	ts.rawHandler = handler
 }
 
+// SetDispatchMode 设置 gnet 服务端包处理模式。
 func (ts *GTcpServer) SetDispatchMode(mode GNetDispatchMode) {
 	if ts == nil {
 		return
@@ -263,6 +282,7 @@ func (ts *GTcpServer) SetDispatchMode(mode GNetDispatchMode) {
 	ts.dispatchMode = mode
 }
 
+// SetCloseTimeout 设置 gnet server 关闭等待超时。
 func (ts *GTcpServer) SetCloseTimeout(timeout time.Duration) {
 	if ts == nil {
 		return

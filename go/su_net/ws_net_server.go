@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// WSServer 提供 WebSocket HTTP upgrade、连接管理和业务包分发。
 type WSServer struct {
 	Addr         string
 	Path         string
@@ -31,10 +32,12 @@ type WSServer struct {
 	writeTimeout int64
 }
 
+// CreateWSServer 使用默认配置创建并启动 WebSocket server。
 func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
 	return CreateWSServerWithConfig(addr, DefaultWSNetConfig(), handlers...)
 }
 
+// CreateWSServerWithConfig 使用指定配置创建并启动 WebSocket server。
 func CreateWSServerWithConfig(addr string, cfg WSNetConfig, handlers ...WSHandler) (*WSServer, error) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -65,6 +68,7 @@ func CreateWSServerWithConfig(addr string, cfg WSNetConfig, handlers ...WSHandle
 	return ws, nil
 }
 
+// handleHTTP 处理 WebSocket upgrade，并为连接启动读循环。
 func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := ws.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -100,6 +104,7 @@ func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// Close 关闭 HTTP server、所有 WebSocket 连接和 worker 池。
 func (ws *WSServer) Close() error {
 	if ws == nil {
 		return nil
@@ -133,6 +138,7 @@ func (ws *WSServer) Close() error {
 	return err
 }
 
+// ConnCount 返回当前存活的 WebSocket 连接数。
 func (ws *WSServer) ConnCount() int {
 	if ws == nil {
 		return 0
@@ -142,6 +148,7 @@ func (ws *WSServer) ConnCount() int {
 	return len(ws.conns)
 }
 
+// SetWriteTimeout 更新服务端默认写超时，并同步到当前所有连接。
 func (ws *WSServer) SetWriteTimeout(timeout time.Duration) {
 	if ws == nil {
 		return
@@ -158,6 +165,7 @@ func (ws *WSServer) SetWriteTimeout(timeout time.Duration) {
 	}
 }
 
+// WriteTimeout 返回服务端当前默认写超时。
 func (ws *WSServer) WriteTimeout() time.Duration {
 	if ws == nil {
 		return 0

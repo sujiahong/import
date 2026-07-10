@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// RedisBackpressureMode 定义 Redis list 消费队列满时的背压策略。
 type RedisBackpressureMode int
 
 const (
@@ -20,6 +21,7 @@ const (
 	RedisBackpressureDrop
 )
 
+// RedisListConsumerConfig 定义 Redis list consumer 的连接、并发和处理器配置。
 type RedisListConsumerConfig struct {
 	RedisConfig      sredis.RedisConfig
 	ListKey          string
@@ -37,18 +39,22 @@ type RedisListConsumerConfig struct {
 	Metrics          MQMetrics
 }
 
+// RedisListMessage 表示从 Redis list 弹出的一条消息。
 type RedisListMessage struct {
 	ListKey string
 	Value   []byte
 }
 
+// RedisListHandler 处理一条 Redis list 消息。
 type RedisListHandler func(ctx context.Context, msg RedisListMessage) error
 
+// redisDoCloser 抽象 Redis client，便于注入真实 client 或测试 fake。
 type redisDoCloser interface {
 	Do(cmd string, args ...interface{}) (interface{}, error)
 	Close() error
 }
 
+// RedisListConsumer 使用 BRPOP 从 Redis list 拉取消息并分发到 worker。
 type RedisListConsumer struct {
 	cfg       RedisListConsumerConfig
 	client    redisDoCloser
@@ -71,6 +77,7 @@ type RedisListConsumer struct {
 	closeErr  error
 }
 
+// NewRedisListConsumer 创建并连接 Redis client 后构造 list consumer。
 func NewRedisListConsumer(cfg RedisListConsumerConfig, handler RedisListHandler) (*RedisListConsumer, error) {
 	cfg = defaultRedisListConsumerConfig(cfg)
 	if cfg.RedisConfig.RemoteAddr == "" {
@@ -86,6 +93,7 @@ func NewRedisListConsumer(cfg RedisListConsumerConfig, handler RedisListHandler)
 	return NewRedisListConsumerWithClient(cfg, client, handler)
 }
 
+// NewRedisListConsumerWithClient 使用外部 Redis client 构造 list consumer。
 func NewRedisListConsumerWithClient(cfg RedisListConsumerConfig, client redisDoCloser, handler RedisListHandler) (*RedisListConsumer, error) {
 	cfg = defaultRedisListConsumerConfig(cfg)
 	if cfg.ListKey == "" {
@@ -108,6 +116,7 @@ func NewRedisListConsumerWithClient(cfg RedisListConsumerConfig, client redisDoC
 	}, nil
 }
 
+// Start 启动 reader 和 worker goroutine；重复启动会返回错误。
 func (rc *RedisListConsumer) Start() error {
 	if rc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "redis list consumer is nil")
@@ -136,6 +145,7 @@ func (rc *RedisListConsumer) Start() error {
 	return nil
 }
 
+// Close 停止 reader、关闭任务队列、等待 worker 退出并关闭 Redis client。
 func (rc *RedisListConsumer) Close() error {
 	if rc == nil {
 		return nil
@@ -160,6 +170,7 @@ func (rc *RedisListConsumer) Close() error {
 	return rc.closeErr
 }
 
+// readLoop 持续执行 BRPOP，失败后按 RetryInterval 等待重试。
 func (rc *RedisListConsumer) readLoop(index int) {
 	defer rc.readerWg.Done()
 	timeoutSeconds := int(rc.cfg.PopTimeout / time.Second)
@@ -202,6 +213,7 @@ func (rc *RedisListConsumer) readLoop(index int) {
 	}
 }
 
+// runWorker 从任务队列取消息，并通过 Processor 执行业务 handler。
 func (rc *RedisListConsumer) runWorker(index int) {
 	defer rc.workerWg.Done()
 	for msg := range rc.jobs {
@@ -220,6 +232,7 @@ func (rc *RedisListConsumer) runWorker(index int) {
 	}
 }
 
+// dispatch 按背压策略把消息投递到 worker 队列。
 func (rc *RedisListConsumer) dispatch(msg RedisListMessage) {
 	rc.jobMu.RLock()
 	defer rc.jobMu.RUnlock()
@@ -240,6 +253,7 @@ func (rc *RedisListConsumer) dispatch(msg RedisListMessage) {
 	}
 }
 
+// closeJobs 只关闭一次 worker 任务队列。
 func (rc *RedisListConsumer) closeJobs() {
 	rc.jobMu.Lock()
 	defer rc.jobMu.Unlock()
@@ -250,6 +264,7 @@ func (rc *RedisListConsumer) closeJobs() {
 	rc.jobsClosed = true
 }
 
+// waitReaders 等待读取 goroutine 退出，超过 CloseTimeout 后记录告警。
 func (rc *RedisListConsumer) waitReaders() {
 	done := make(chan struct{})
 	go func() {
@@ -263,6 +278,7 @@ func (rc *RedisListConsumer) waitReaders() {
 	}
 }
 
+// waitWorkers 等待 worker goroutine 退出，超过 CloseTimeout 后记录告警。
 func (rc *RedisListConsumer) waitWorkers() {
 	done := make(chan struct{})
 	go func() {
@@ -276,6 +292,7 @@ func (rc *RedisListConsumer) waitWorkers() {
 	}
 }
 
+// parseRedisListMessage 解析 BRPOP 返回的 list key 和 payload。
 func parseRedisListMessage(reply interface{}) (RedisListMessage, error) {
 	values, err := redis.Values(reply, nil)
 	if err != nil {
@@ -295,6 +312,7 @@ func parseRedisListMessage(reply interface{}) (RedisListMessage, error) {
 	return RedisListMessage{ListKey: listKey, Value: value}, nil
 }
 
+// defaultRedisListConsumerConfig 填充 Redis list consumer 默认并发、队列和超时配置。
 func defaultRedisListConsumerConfig(cfg RedisListConsumerConfig) RedisListConsumerConfig {
 	if cfg.ReaderNum <= 0 {
 		cfg.ReaderNum = 1
@@ -320,6 +338,7 @@ func defaultRedisListConsumerConfig(cfg RedisListConsumerConfig) RedisListConsum
 	return cfg
 }
 
+// processorOptionsFromRedisConfig 提取 Redis list consumer 的通用 Processor 配置。
 func processorOptionsFromRedisConfig(cfg RedisListConsumerConfig) ProcessorOptions {
 	return ProcessorOptions{
 		RetryPolicy: cfg.RetryPolicy,
