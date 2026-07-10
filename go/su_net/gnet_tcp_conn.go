@@ -18,15 +18,15 @@ type GNetRawHandler func(*GNetConn, *DataProtocol)
 
 // GNetConn 封装 gnet.Conn，并维护收包缓存、地址信息和心跳状态。
 type GNetConn struct {
-	Gconn        gnet.Conn
-	RemoteAddr   string
-	LocalAddr    string
-	closed       int32
-	recvData     []byte ////网络数据缓存
-	closeOnce    sync.Once
-	checkTimes   int32 /// 检测心跳次数
-	pendingPings int32
-	PingPongMap  sync.Map /////注册处理映射
+	Gconn        gnet.Conn // 底层 gnet 连接。
+	RemoteAddr   string    // 远端地址字符串。
+	LocalAddr    string    // 本地地址字符串。
+	closed       int32     // 连接是否已关闭，按 atomic 访问。
+	recvData     []byte    // gnet 收包半包/粘包缓存。
+	closeOnce    sync.Once // 保证 Close 只执行一次。
+	checkTimes   int32     // 连续检测到未完成心跳的次数。
+	pendingPings int32     // 尚未收到 PONG 的心跳数量。
+	PingPongMap  sync.Map  // Ping 发送时间到占位值的映射。
 }
 
 // NewGnetConn 创建 gnet 连接包装并缓存本地/远端地址。

@@ -18,18 +18,18 @@ import (
 
 // WSServer 提供 WebSocket HTTP upgrade、连接管理和业务包分发。
 type WSServer struct {
-	Addr         string
-	Path         string
-	server       *http.Server
-	listener     net.Listener
-	handler      WSHandler
-	conns        map[uint64]*WSConn
-	connsMu      sync.Mutex
-	nextConnID   uint64
-	pool         *su_util.GoPool
-	closeOnce    sync.Once
-	upgrader     websocket.Upgrader
-	writeTimeout int64
+	Addr         string             // 实际监听地址。
+	Path         string             // WebSocket HTTP path。
+	server       *http.Server       // HTTP server。
+	listener     net.Listener       // TCP listener。
+	handler      WSHandler          // 业务包处理函数。
+	conns        map[uint64]*WSConn // 连接 ID 到连接的映射。
+	connsMu      sync.Mutex         // 保护 conns。
+	nextConnID   uint64             // 递增连接 ID。
+	pool         *su_util.GoPool    // 业务包处理 worker 池。
+	closeOnce    sync.Once          // 保证 Close 只执行一次。
+	upgrader     websocket.Upgrader // HTTP 到 WebSocket 的升级器。
+	writeTimeout int64              // 写超时，存储为 time.Duration 的 int64。
 }
 
 // CreateWSServer 使用默认配置创建并启动 WebSocket server。

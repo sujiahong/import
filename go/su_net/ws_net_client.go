@@ -15,17 +15,17 @@ import (
 
 // WSClient 管理一个 WebSocket 客户端连接、心跳检查和可选自动重连。
 type WSClient struct {
-	Addr              string
-	Conn              *WSConn
-	handler           WSHandler
-	done              chan struct{}
-	stopOnce          sync.Once
-	connMu            sync.RWMutex
-	closed            int32
-	reconnectEnabled  int32
-	reconnecting      int32
-	reconnectInterval time.Duration
-	writeTimeout      int64
+	Addr              string        // WebSocket URL。
+	Conn              *WSConn       // 当前活跃 WebSocket 连接。
+	handler           WSHandler     // 业务包处理函数。
+	done              chan struct{} // 心跳 goroutine 停止信号。
+	stopOnce          sync.Once     // 保证心跳停止信号只关闭一次。
+	connMu            sync.RWMutex  // 保护 Conn 替换和读取。
+	closed            int32         // client 是否已关闭，按 atomic 访问。
+	reconnectEnabled  int32         // 是否启用自动重连，按 atomic 访问。
+	reconnecting      int32         // 是否正在重连，按 atomic 访问。
+	reconnectInterval time.Duration // 自动重连间隔。
+	writeTimeout      int64         // 写超时，存储为 time.Duration 的 int64。
 }
 
 // CreateWSClient 使用默认配置连接 WebSocket 服务端。

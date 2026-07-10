@@ -20,14 +20,14 @@ func (NopDeadLetter) Publish(ctx context.Context, msg Message, err error) error 
 
 // DeadLetterMessage 保存一条死信消息及其失败原因。
 type DeadLetterMessage struct {
-	Message Message
-	Err     error
+	Message Message // 原始消费消息。
+	Err     error   // 消费最终失败原因。
 }
 
 // MemoryDeadLetter 将死信消息保存在内存中，主要用于测试或本地观察。
 type MemoryDeadLetter struct {
-	mu       sync.Mutex
-	messages []DeadLetterMessage
+	mu       sync.Mutex          // 保护 messages。
+	messages []DeadLetterMessage // 内存死信消息列表。
 }
 
 // NewMemoryDeadLetter 创建内存死信队列。

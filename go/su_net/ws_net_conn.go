@@ -17,15 +17,15 @@ type WSHandler func(*WSConn, *DataProtocol)
 
 // WSConn 封装 gorilla/websocket.Conn，并维护收包缓存、写锁和心跳状态。
 type WSConn struct {
-	conn         *websocket.Conn
-	closed       int32
-	recvData     []byte
-	writeMu      sync.Mutex
-	closeOnce    sync.Once
-	checkTimes   int32
-	pendingPings int32
-	PingPongMap  sync.Map
-	writeTimeout int64
+	conn         *websocket.Conn // 底层 WebSocket 连接。
+	closed       int32           // 连接是否已关闭，按 atomic 访问。
+	recvData     []byte          // WebSocket 帧内半包/粘包缓存。
+	writeMu      sync.Mutex      // 串行化写操作和写 deadline 设置。
+	closeOnce    sync.Once       // 保证 Close 只执行一次。
+	checkTimes   int32           // 连续检测到未完成心跳的次数。
+	pendingPings int32           // 尚未收到 PONG 的心跳数量。
+	PingPongMap  sync.Map        // Ping 发送时间到占位值的映射。
+	writeTimeout int64           // 写超时，存储为 time.Duration 的 int64。
 }
 
 // newWSConn 使用默认写超时创建 WebSocket 连接包装。

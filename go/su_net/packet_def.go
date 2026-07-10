@@ -12,16 +12,16 @@ import (
 
 // Header 是自定义网络协议的固定 24 字节包头。
 type Header struct { // 24字节
-	PackLen  uint32 ///整个包长度，包头加包
-	PackId   uint32
-	RouteId  uint64
-	HeadUuid uint64
+	PackLen  uint32 // 整包长度，包含包头和 payload。
+	PackId   uint32 // 业务包 ID 或控制包 ID。
+	RouteId  uint64 // 请求路由 ID，用于请求响应关联。
+	HeadUuid uint64 // 包头唯一时间戳/标识。
 }
 
 // DataProtocol 表示一帧完整业务数据包。
 type DataProtocol struct {
-	Head Header
-	Data []byte
+	Head Header // 固定长度协议头。
+	Data []byte // 协议 payload。
 }
 
 const (
@@ -66,13 +66,13 @@ func deleteSyncMapValue(m *sync.Map, key interface{}, value interface{}) bool {
 
 // Ping 是心跳请求载荷。
 type Ping struct {
-	SendTime uint64 //////发送时间
+	SendTime uint64 // Ping 发送时间，单位微秒。
 }
 
 // Pong 是心跳响应载荷，包含响应时间和对应 Ping 时间。
 type Pong struct {
-	SendTime uint64 //////发送时间
-	PingTime uint64 //////ping的发送时间
+	SendTime uint64 // Pong 发送时间，单位微秒。
+	PingTime uint64 // 对应 Ping 的发送时间，单位微秒。
 }
 
 // Encode 将 DataProtocol 编码为二进制网络包。

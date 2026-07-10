@@ -26,8 +26,8 @@ func (NopIdempotency) Mark(ctx context.Context, key string) error {
 
 // MemoryIdempotency 使用内存 map 保存已处理消息 ID。
 type MemoryIdempotency struct {
-	mu   sync.Mutex
-	seen map[string]struct{}
+	mu   sync.Mutex          // 保护 seen。
+	seen map[string]struct{} // 已处理消息 ID 集合。
 }
 
 // NewMemoryIdempotency 创建内存幂等记录器。

@@ -15,14 +15,14 @@ import (
 
 // TcpServer 监听 TCP 连接，并将业务包分发到 worker 池处理。
 type TcpServer struct {
-	Addr         string
-	listener     *net.TCPListener
-	handler      TcpHandler
-	conns        map[string]*TcpConn
-	connsMu      sync.Mutex
-	closeOnce    sync.Once
-	pool         *su_util.GoPool
-	writeTimeout int64
+	Addr         string              // 实际监听地址。
+	listener     *net.TCPListener    // TCP listener。
+	handler      TcpHandler          // 业务包处理函数。
+	conns        map[string]*TcpConn // remote addr 到连接的映射。
+	connsMu      sync.Mutex          // 保护 conns。
+	closeOnce    sync.Once           // 保证 Close 只执行一次。
+	pool         *su_util.GoPool     // 业务包处理 worker 池。
+	writeTimeout int64               // 写超时，存储为 time.Duration 的 int64。
 }
 
 // CreateTcpServer 使用默认配置创建并启动 TCP server。

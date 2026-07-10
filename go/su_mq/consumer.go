@@ -8,15 +8,15 @@ import (
 
 // Message 是 su_mq 内部统一的消费消息模型。
 type Message struct {
-	ID        string
-	Source    string
-	Topic     string
-	Key       []byte
-	Value     []byte
-	Headers   map[string]string
-	Partition int32
-	Offset    int64
-	Raw       any
+	ID        string            // 消息唯一 ID；为空时由 messageID 自动生成。
+	Source    string            // 消息来源，例如 kafka 或 redis。
+	Topic     string            // 主题名或 Redis list key。
+	Key       []byte            // 消息 key。
+	Value     []byte            // 消息 payload。
+	Headers   map[string]string // 消息头。
+	Partition int32             // Kafka 分区；非 Kafka 消息可为 0。
+	Offset    int64             // Kafka offset；非 Kafka 消息可为 0。
+	Raw       any               // 底层原始消息对象。
 }
 
 // Handler 处理一条标准化后的消息。
@@ -24,7 +24,7 @@ type Handler func(ctx context.Context, msg Message) error
 
 // HandlerRegistry 按 topic 保存消息处理函数。
 type HandlerRegistry struct {
-	handlers map[string]Handler
+	handlers map[string]Handler // topic 到 handler 的映射。
 }
 
 // NewHandlerRegistry 创建空的 handler registry。
@@ -50,15 +50,15 @@ func (r *HandlerRegistry) Handler(topic string) Handler {
 
 // ProcessorOptions 定义消息处理的重试、死信、幂等和指标插件。
 type ProcessorOptions struct {
-	RetryPolicy RetryPolicy
-	DeadLetter  DeadLetter
-	Idempotency Idempotency
-	Metrics     MQMetrics
+	RetryPolicy RetryPolicy // 消费失败后的重试策略。
+	DeadLetter  DeadLetter  // 最终失败后的死信发布器。
+	Idempotency Idempotency // 消息幂等检查和标记器。
+	Metrics     MQMetrics   // 消费指标回调。
 }
 
 // Processor 负责围绕业务 handler 执行幂等检查、重试、死信和指标记录。
 type Processor struct {
-	opts ProcessorOptions
+	opts ProcessorOptions // 当前处理器配置。
 }
 
 // NewProcessor 创建消息处理器，并补齐缺省组件。

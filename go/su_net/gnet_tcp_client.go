@@ -17,25 +17,25 @@ import (
 
 // GTcpClient 基于 gnet 管理多条 TCP 客户端连接、心跳、重连和请求响应映射。
 type GTcpClient struct {
-	gnet.BuiltinEventEngine          ////匿名字段   事件服务
-	*gnet.Client                     //// 客户端
-	remote_addr             string   ////远端连接地址
-	cfgConnNum              uint8    //// 配置连接数量
-	state                   int32    /// 客户端状态 0 停止 1 连接中 2 已连接
-	reconnectState          int32    /// 重连状态  0 停用  1 启用
-	connMap                 sync.Map /////ip - 连接映射
-	connMu                  sync.RWMutex
-	connList                []*GNetConn
-	pool                    *su_util.GoPool
-	regHandlerMap           sync.Map /////注册处理映射
-	rawHandler              GNetRawHandler
-	dispatchMode            GNetDispatchMode
-	pendingRQMap            sync.Map /////route id - 请求映射
-	pendingEnabled          int32
-	requestTimeout          time.Duration
-	sendSeq                 uint64
-	stopOnce                sync.Once
-	stopErr                 error
+	gnet.BuiltinEventEngine                  // gnet 事件引擎嵌入字段。
+	*gnet.Client                             // 底层 gnet client。
+	remote_addr             string           // 远端连接地址。
+	cfgConnNum              uint8            // 期望维持的连接数量。
+	state                   int32            // 客户端状态：0 停止、1 连接中、2 已连接。
+	reconnectState          int32            // 重连调度状态：0 未调度、1 已调度。
+	connMap                 sync.Map         // 本地地址到 GNetConn 的映射。
+	connMu                  sync.RWMutex     // 保护 connList 和 pool 惰性创建。
+	connList                []*GNetConn      // 当前可用连接列表。
+	pool                    *su_util.GoPool  // 包处理 worker 池。
+	regHandlerMap           sync.Map         // 响应包 ID 到 HandlerFuncST 的映射。
+	rawHandler              GNetRawHandler   // raw 模式处理函数。
+	dispatchMode            GNetDispatchMode // 包处理分发模式。
+	pendingRQMap            sync.Map         // route id 到 pending 请求的映射。
+	pendingEnabled          int32            // 是否记录 pending 请求，按 atomic 访问。
+	requestTimeout          time.Duration    // pending 请求过期时间。
+	sendSeq                 uint64           // 轮询连接发送的序号。
+	stopOnce                sync.Once        // 保证 Stop 只执行一次。
+	stopErr                 error            // Stop 返回的底层错误。
 }
 
 // OnOpen 是 gnet 连接建立回调，会注册连接并发送初始心跳。

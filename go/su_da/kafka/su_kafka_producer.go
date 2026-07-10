@@ -14,17 +14,17 @@ import (
 
 // KafkaProducerConfig 定义 Kafka producer 的连接、发送模式、缓冲和重试配置。
 type KafkaProducerConfig struct {
-	AddrSlice         []string
-	Topic             string
-	Async             bool
-	ChannelBufferSize int
-	ReturnSuccesses   bool
-	FlushMessages     int
-	FlushFrequency    time.Duration
-	Compression       sarama.CompressionCodec
-	RequiredAcks      sarama.RequiredAcks
-	RetryInterval     time.Duration
-	LogMessages       bool
+	AddrSlice         []string                // Kafka broker 地址列表。
+	Topic             string                  // 默认发送 topic。
+	Async             bool                    // 是否使用异步 producer。
+	ChannelBufferSize int                     // Sarama 内部 channel 缓冲大小。
+	ReturnSuccesses   bool                    // 异步 producer 是否返回成功消息。
+	FlushMessages     int                     // 批量 flush 的消息数量阈值。
+	FlushFrequency    time.Duration           // 批量 flush 的时间阈值。
+	Compression       sarama.CompressionCodec // producer 压缩算法。
+	RequiredAcks      sarama.RequiredAcks     // broker ack 等级。
+	RetryInterval     time.Duration           // 异步恢复失败后的重试间隔。
+	LogMessages       bool                    // 是否记录发送成功/失败的详细日志。
 }
 
 var (
@@ -34,27 +34,27 @@ var (
 
 // KafkaProducer 封装 sarama 同步或异步 producer，并管理重连和关闭生命周期。
 type KafkaProducer struct {
-	AddrSlice     []string
-	Topic         string
-	Async         bool
-	client        sarama.SyncProducer
-	asclient      sarama.AsyncProducer
-	cfg           KafkaProducerConfig
-	mu            sync.RWMutex
-	reconnectMu   sync.Mutex
-	ctx           context.Context
-	cancel        func()
-	closeOnce     sync.Once
-	closeErr      error
-	retryInterval time.Duration
-	logMessages   bool
+	AddrSlice     []string             // Kafka broker 地址列表。
+	Topic         string               // 默认发送 topic。
+	Async         bool                 // 当前 producer 是否为异步模式。
+	client        sarama.SyncProducer  // 同步 producer client。
+	asclient      sarama.AsyncProducer // 异步 producer client。
+	cfg           KafkaProducerConfig  // 最近一次创建 producer 使用的配置。
+	mu            sync.RWMutex         // 保护 client 指针和配置读取。
+	reconnectMu   sync.Mutex           // 串行化重连和关闭流程。
+	ctx           context.Context      // producer 生命周期上下文。
+	cancel        func()               // 取消 producer 生命周期上下文。
+	closeOnce     sync.Once            // 保证 Close 只执行一次。
+	closeErr      error                // Close 返回的底层错误。
+	retryInterval time.Duration        // 异步后台恢复重试间隔。
+	logMessages   bool                 // 是否记录发送过程详细日志。
 }
 
 // syncSendResult 保存同步发送 goroutine 返回的分区、offset 和错误。
 type syncSendResult struct {
-	partition int32
-	offset    int64
-	err       error
+	partition int32 // broker 返回的分区号。
+	offset    int64 // broker 返回的 offset。
+	err       error // SendMessage 返回的错误。
 }
 
 // NewKafkaProducer 使用地址、topic 和异步标记创建 Kafka producer。

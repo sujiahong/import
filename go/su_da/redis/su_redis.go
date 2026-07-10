@@ -12,29 +12,29 @@ import (
 
 // RedisConfig 定义 Redis 连接池、数据库和超时配置。
 type RedisConfig struct {
-	RemoteAddr   string
-	ConnNum      int
-	MaxIdle      int
-	MaxActive    int
-	IdleTimeout  time.Duration
-	DB           int
-	DialTimeout  time.Duration
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	Wait         bool
+	RemoteAddr   string        // Redis tcp 地址。
+	ConnNum      int           // 兼容旧接口的连接数配置。
+	MaxIdle      int           // 连接池最大空闲连接数。
+	MaxActive    int           // 连接池最大活跃连接数。
+	IdleTimeout  time.Duration // 空闲连接保留时间。
+	DB           int           // Redis 数据库编号。
+	DialTimeout  time.Duration // 建连超时。
+	ReadTimeout  time.Duration // 读超时。
+	WriteTimeout time.Duration // 写超时。
+	Wait         bool          // 连接池耗尽时是否等待可用连接。
 }
 
 // RedisClient 封装 redigo 连接池，并提供并发安全的连接池重建和关闭能力。
 type RedisClient struct {
-	pool        *redis.Pool /////redis连接池
-	RemoteAddr  string
-	ConnNum     int
-	cfg         RedisConfig
-	dial        func(RedisConfig) (redis.Conn, error)
-	mu          sync.RWMutex
-	reconnectMu sync.Mutex
-	closeOnce   sync.Once
-	closeErr    error
+	pool        *redis.Pool                           // 当前 redigo 连接池。
+	RemoteAddr  string                                // 当前 Redis 地址。
+	ConnNum     int                                   // 兼容旧接口的连接数配置。
+	cfg         RedisConfig                           // 最近一次创建连接池使用的配置。
+	dial        func(RedisConfig) (redis.Conn, error) // 建连函数，测试中可替换。
+	mu          sync.RWMutex                          // 保护连接池指针和配置。
+	reconnectMu sync.Mutex                            // 串行化 Connect/Reconnect/Close。
+	closeOnce   sync.Once                             // 保证 Close 只执行一次。
+	closeErr    error                                 // Close 返回的底层错误。
 }
 
 // NewRedisClient 使用地址和连接数创建 Redis client。

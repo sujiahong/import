@@ -23,26 +23,26 @@ const (
 
 // RedisListConsumerConfig 定义 Redis list consumer 的连接、并发和处理器配置。
 type RedisListConsumerConfig struct {
-	RedisConfig      sredis.RedisConfig
-	ListKey          string
-	ReaderNum        int
-	WorkerNum        int
-	QueueSize        int
-	PopTimeout       time.Duration
-	CloseTimeout     time.Duration
-	RetryInterval    time.Duration
-	BackpressureMode RedisBackpressureMode
-	LogMessages      bool
-	RetryPolicy      RetryPolicy
-	DeadLetter       DeadLetter
-	Idempotency      Idempotency
-	Metrics          MQMetrics
+	RedisConfig      sredis.RedisConfig    // 底层 Redis client 配置。
+	ListKey          string                // BRPOP 消费的 Redis list key。
+	ReaderNum        int                   // 并发 BRPOP reader 数量。
+	WorkerNum        int                   // 消息处理 worker 数量。
+	QueueSize        int                   // reader 到 worker 的内存队列大小。
+	PopTimeout       time.Duration         // BRPOP 阻塞超时。
+	CloseTimeout     time.Duration         // Close 等待读/写 goroutine 的超时。
+	RetryInterval    time.Duration         // BRPOP 失败后的重试间隔。
+	BackpressureMode RedisBackpressureMode // worker 队列满时的背压策略。
+	LogMessages      bool                  // 是否记录每条消息日志。
+	RetryPolicy      RetryPolicy           // 业务 handler 失败后的重试策略。
+	DeadLetter       DeadLetter            // 最终失败后的死信发布器。
+	Idempotency      Idempotency           // 消息幂等检查和标记器。
+	Metrics          MQMetrics             // 消费指标回调。
 }
 
 // RedisListMessage 表示从 Redis list 弹出的一条消息。
 type RedisListMessage struct {
-	ListKey string
-	Value   []byte
+	ListKey string // 来源 Redis list key。
+	Value   []byte // 消息 payload。
 }
 
 // RedisListHandler 处理一条 Redis list 消息。
@@ -56,25 +56,25 @@ type redisDoCloser interface {
 
 // RedisListConsumer 使用 BRPOP 从 Redis list 拉取消息并分发到 worker。
 type RedisListConsumer struct {
-	cfg       RedisListConsumerConfig
-	client    redisDoCloser
-	handler   RedisListHandler
-	processor *Processor
+	cfg       RedisListConsumerConfig // 当前 consumer 配置。
+	client    redisDoCloser           // Redis 命令 client。
+	handler   RedisListHandler        // 业务消息处理函数。
+	processor *Processor              // 通用消息处理器。
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	jobs   chan RedisListMessage
+	ctx    context.Context       // consumer 生命周期上下文。
+	cancel context.CancelFunc    // 取消 consumer 生命周期上下文。
+	jobs   chan RedisListMessage // reader 到 worker 的消息队列。
 
-	mu         sync.Mutex
-	started    bool
-	closed     bool
-	jobMu      sync.RWMutex
-	jobsClosed bool
+	mu         sync.Mutex   // 保护 started/closed 状态。
+	started    bool         // 是否已启动。
+	closed     bool         // 是否已关闭。
+	jobMu      sync.RWMutex // 保护 jobs channel 关闭状态。
+	jobsClosed bool         // jobs channel 是否已关闭。
 
-	readerWg  sync.WaitGroup
-	workerWg  sync.WaitGroup
-	closeOnce sync.Once
-	closeErr  error
+	readerWg  sync.WaitGroup // 等待 reader goroutine 退出。
+	workerWg  sync.WaitGroup // 等待 worker goroutine 退出。
+	closeOnce sync.Once      // 保证 Close 只执行一次。
+	closeErr  error          // Close 返回的底层错误。
 }
 
 // NewRedisListConsumer 创建并连接 Redis client 后构造 list consumer。

@@ -31,40 +31,40 @@ type HandleMessageFunc func(ctx context.Context, msg *sarama.ConsumerMessage) er
 
 // KafkaConsumerConfig 定义 Kafka consumer 的连接、并发、关闭和背压配置。
 type KafkaConsumerConfig struct {
-	AddrSlice        []string
-	Topic            string
-	ClientID         string
-	WorkerNum        uint32
-	QueueSize        uint32
-	CloseTimeout     time.Duration
-	RetryInterval    time.Duration
-	BackpressureMode KafkaBackpressureMode
-	LogMessages      bool
+	AddrSlice        []string              // Kafka broker 地址列表。
+	Topic            string                // 订阅的 topic 名称。
+	ClientID         string                // Sarama consumer client id。
+	WorkerNum        uint32                // 消息处理 worker 数量，0 表示按 CPU/分区数自动设置。
+	QueueSize        uint32                // worker 池任务队列大小。
+	CloseTimeout     time.Duration         // Close 等待 goroutine 和 worker 池退出的最长时间。
+	RetryInterval    time.Duration         // 分区订阅失败或断开后的重试间隔。
+	BackpressureMode KafkaBackpressureMode // worker 队列满时的背压策略。
+	LogMessages      bool                  // 是否记录消费和关闭过程的详细日志。
 }
 
 // KafkaConsumer 封装 sarama.Consumer，并管理分区消费 goroutine 与处理 worker 池。
 type KafkaConsumer struct {
-	AddrSlice        []string
-	Topic            string
-	client           sarama.Consumer
-	cfg              KafkaConsumerConfig
-	mu               sync.RWMutex
-	reconnectMu      sync.Mutex
-	ClientID         string
-	processFunc      HandleFunc
-	messageFunc      HandleMessageFunc
-	pool             *su_util.GoPool
-	ctx              context.Context
-	cancel           func()
-	closeOnce        sync.Once
-	wg               sync.WaitGroup
-	poolMu           sync.Mutex
-	workerNum        uint32
-	queueSize        uint32
-	closeTimeout     time.Duration
-	retryInterval    time.Duration
-	backpressureMode KafkaBackpressureMode
-	logMessages      bool
+	AddrSlice        []string              // Kafka broker 地址列表。
+	Topic            string                // 当前消费的 topic。
+	client           sarama.Consumer       // 当前底层 Sarama consumer。
+	cfg              KafkaConsumerConfig   // 最近一次创建 consumer 使用的配置。
+	mu               sync.RWMutex          // 保护 client 读写和重连交换。
+	reconnectMu      sync.Mutex            // 串行化 consumer 重连流程。
+	ClientID         string                // Sarama consumer client id。
+	processFunc      HandleFunc            // 旧版分区回调。
+	messageFunc      HandleMessageFunc     // 新版带 context 的消息回调。
+	pool             *su_util.GoPool       // 消息处理 worker 池。
+	ctx              context.Context       // consumer 生命周期上下文。
+	cancel           func()                // 取消 consumer 生命周期上下文。
+	closeOnce        sync.Once             // 保证 Close 只执行一次。
+	wg               sync.WaitGroup        // 等待分区消费 goroutine 退出。
+	poolMu           sync.Mutex            // 保护 worker 池惰性创建。
+	workerNum        uint32                // 实际使用的 worker 数量。
+	queueSize        uint32                // worker 池任务队列大小。
+	closeTimeout     time.Duration         // 关闭等待超时。
+	retryInterval    time.Duration         // 分区重订阅等待间隔。
+	backpressureMode KafkaBackpressureMode // worker 队列满时的背压策略。
+	logMessages      bool                  // 是否记录详细消费日志。
 }
 
 // NewKafkaConsumer 使用旧版分区回调创建 Kafka consumer。

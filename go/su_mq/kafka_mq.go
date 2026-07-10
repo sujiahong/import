@@ -19,19 +19,19 @@ const (
 
 // KafkaConsumerConfig 定义 su_mq Kafka consumer 的连接、处理器和背压配置。
 type KafkaConsumerConfig struct {
-	AddrSlice        []string
-	Topic            string
-	ClientID         string
-	WorkerNum        uint32
-	QueueSize        uint32
-	CloseTimeout     time.Duration
-	RetryInterval    time.Duration
-	BackpressureMode KafkaBackpressureMode
-	LogMessages      bool
-	RetryPolicy      RetryPolicy
-	DeadLetter       DeadLetter
-	Idempotency      Idempotency
-	Metrics          MQMetrics
+	AddrSlice        []string              // Kafka broker 地址列表。
+	Topic            string                // 订阅 topic。
+	ClientID         string                // Kafka client id。
+	WorkerNum        uint32                // 消息处理 worker 数量。
+	QueueSize        uint32                // worker 任务队列大小。
+	CloseTimeout     time.Duration         // Close 等待超时。
+	RetryInterval    time.Duration         // 分区断开后的重试间隔。
+	BackpressureMode KafkaBackpressureMode // worker 队列满时的背压策略。
+	LogMessages      bool                  // 是否记录消息级日志。
+	RetryPolicy      RetryPolicy           // 业务 handler 失败后的重试策略。
+	DeadLetter       DeadLetter            // 最终失败后的死信发布器。
+	Idempotency      Idempotency           // 消息幂等检查和标记器。
+	Metrics          MQMetrics             // 消费指标回调。
 }
 
 // KafkaMessageHandler 是带 context 的 Kafka 消息处理函数。
@@ -42,7 +42,7 @@ type KafkaPartitionHandler = skafka.HandleFunc
 
 // KafkaConsumer 封装底层 su_da/kafka consumer，并接入通用 Processor。
 type KafkaConsumer struct {
-	consumer *skafka.KafkaConsumer
+	consumer *skafka.KafkaConsumer // 底层 su_da/kafka consumer。
 }
 
 // NewKafkaConsumer 创建 Kafka consumer，并用 Processor 包装业务 handler。

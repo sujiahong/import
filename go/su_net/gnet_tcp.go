@@ -22,19 +22,19 @@ const (
 
 // HandlerFuncST 保存一个请求包 ID 到响应包 ID 的 proto 处理注册信息。
 type HandlerFuncST struct {
-	RQ         proto.Message
-	RQPackId   uint32
-	RS         proto.Message
-	RSPackId   uint32
-	HandleFunc HandleFuncType
-	RQType     reflect.Type
-	RSType     reflect.Type
+	RQ         proto.Message  // 请求 proto 模板。
+	RQPackId   uint32         // 请求包 ID。
+	RS         proto.Message  // 响应 proto 模板。
+	RSPackId   uint32         // 响应包 ID。
+	HandleFunc HandleFuncType // 业务处理函数。
+	RQType     reflect.Type   // 请求 proto 元素类型。
+	RSType     reflect.Type   // 响应 proto 元素类型。
 }
 
 // pendingGNetRequest 保存等待响应的原始请求消息及创建时间。
 type pendingGNetRequest struct {
-	rq        proto.Message
-	createdAt time.Time
+	rq        proto.Message // 等待响应的请求消息副本。
+	createdAt time.Time     // pending 创建时间。
 }
 
 // newProtoType 校验 proto 模板并返回其元素类型，用于后续反射创建消息。

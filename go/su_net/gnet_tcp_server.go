@@ -15,17 +15,17 @@ import (
 
 // GTcpServer 基于 gnet 提供 TCP 服务端连接管理、包分发和请求响应处理。
 type GTcpServer struct {
-	gnet.BuiltinEventEngine                 ////匿名字段   事件服务
-	pool                    *su_util.GoPool ///协程池
-	Stat                    int32           /// 服务状态 0 停止 1 初始化 2 启动
-	Addr                    string          ////监听地址
-	protoAddr               string
-	dispatchMode            GNetDispatchMode
-	closeOnce               sync.Once
-	connMap                 sync.Map /////ip - 连接映射
-	regHandlerMap           sync.Map /////注册处理映射
-	rawHandler              GNetRawHandler
-	closeTimeout            time.Duration
+	gnet.BuiltinEventEngine                  // gnet 事件引擎嵌入字段。
+	pool                    *su_util.GoPool  // 包处理 worker 池。
+	Stat                    int32            // 服务状态：0 停止、1 初始化、2 启动。
+	Addr                    string           // 用户传入的监听地址。
+	protoAddr               string           // gnet 使用的协议地址。
+	dispatchMode            GNetDispatchMode // 包处理分发模式。
+	closeOnce               sync.Once        // 保证 Close 只执行一次。
+	connMap                 sync.Map         // 远端地址到 GNetConn 的映射。
+	regHandlerMap           sync.Map         // 请求包 ID 到 HandlerFuncST 的映射。
+	rawHandler              GNetRawHandler   // raw 模式处理函数。
+	closeTimeout            time.Duration    // gnet Stop 和 worker 池排空超时。
 }
 
 // OnBoot 是 gnet 服务启动完成回调。

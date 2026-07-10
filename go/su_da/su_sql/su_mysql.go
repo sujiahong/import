@@ -24,35 +24,35 @@ import (
 
 // MysqlConfig 定义 MySQL DSN、连接池容量和连接/读写/Ping 超时配置。
 type MysqlConfig struct {
-	Uname           string
-	Passwd          string
-	Addr            string
-	DbName          string
-	DSN             string
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-	ConnMaxIdleTime time.Duration
-	ConnectTimeout  time.Duration
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	PingTimeout     time.Duration
+	Uname           string        // MySQL 用户名。
+	Passwd          string        // MySQL 密码。
+	Addr            string        // MySQL tcp 地址。
+	DbName          string        // 数据库名。
+	DSN             string        // 完整 DSN；非空时优先使用。
+	MaxOpenConns    int           // database/sql 最大打开连接数。
+	MaxIdleConns    int           // database/sql 最大空闲连接数。
+	ConnMaxLifetime time.Duration // 单连接最大生命周期。
+	ConnMaxIdleTime time.Duration // 单连接最大空闲时间。
+	ConnectTimeout  time.Duration // 建连超时，映射到 mysql.Config.Timeout。
+	ReadTimeout     time.Duration // 读超时，映射到 mysql.Config.ReadTimeout。
+	WriteTimeout    time.Duration // 写超时，映射到 mysql.Config.WriteTimeout。
+	PingTimeout     time.Duration // Connect 阶段 PingContext 超时。
 }
 
 // MysqlClient 封装 sqlx.DB，并管理连接池重建、关闭和基础 CRUD 操作。
 type MysqlClient struct {
-	Db          *sqlx.DB
-	Uname       string
-	Passwd      string
-	Addr        string
-	DbName      string
-	MaxOpenCns  int
-	MaxIdleCns  int
-	cfg         MysqlConfig
-	mu          sync.RWMutex
-	reconnectMu sync.Mutex
-	closeOnce   sync.Once
-	closeErr    error
+	Db          *sqlx.DB     // 当前 sqlx 连接池。
+	Uname       string       // 当前用户名。
+	Passwd      string       // 当前密码。
+	Addr        string       // 当前 MySQL 地址。
+	DbName      string       // 当前数据库名。
+	MaxOpenCns  int          // 当前最大打开连接数。
+	MaxIdleCns  int          // 当前最大空闲连接数。
+	cfg         MysqlConfig  // 最近一次创建连接池使用的配置。
+	mu          sync.RWMutex // 保护 Db 指针和配置字段。
+	reconnectMu sync.Mutex   // 串行化 Connect/Reconnect/Close。
+	closeOnce   sync.Once    // 保证 Close 只执行一次。
+	closeErr    error        // Close 返回的底层错误。
 }
 
 // NewMysqlClient 使用传统账号参数创建 MySQL client。

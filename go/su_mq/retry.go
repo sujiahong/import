@@ -19,8 +19,8 @@ func (NoRetry) Next(attempt int, err error) (time.Duration, bool) {
 
 // FixedRetry 使用固定延迟和最大尝试次数控制重试。
 type FixedRetry struct {
-	MaxAttempts int
-	Delay       time.Duration
+	MaxAttempts int           // 最大重试次数。
+	Delay       time.Duration // 每次重试前的固定等待时间。
 }
 
 // Next 返回固定延迟，并在 attempt 未达到 MaxAttempts 时继续重试。

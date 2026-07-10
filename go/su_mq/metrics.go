@@ -31,7 +31,7 @@ func (NopMQMetrics) ConsumeSkipped(msg Message) {}
 
 // DefaultMQMetrics 将消费事件记录到 su_metrics。
 type DefaultMQMetrics struct {
-	Metrics su_metrics.Metrics
+	Metrics su_metrics.Metrics // 实际指标后端。
 }
 
 // NewDefaultMQMetrics 创建默认指标适配器；nil metrics 会使用 su_metrics.Default。
