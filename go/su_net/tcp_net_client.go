@@ -24,6 +24,7 @@ type TcpClient struct {
 	reconnecting      int32         // 是否正在重连，按 atomic 访问。
 	reconnectInterval time.Duration // 自动重连间隔。
 	writeTimeout      int64         // 写超时，存储为 time.Duration 的 int64。
+	dataHandler 	  DataHandler   // 业务数据包处理函数。
 }
 
 // CreateTcpClient 使用默认配置连接 TCP 服务端。

@@ -9,6 +9,26 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+type HandlerContext struct {
+    Conn   any
+    Packet *DataProtocol
+}
+// MessageHandler 是函数式处理器，和 DataHandler.HandleMessage 保持同一签名。
+type MessageHandler func(ctx *HandlerContext, req []byte, rsp []byte) error
+
+// 数据处理器接口。
+type DataHandler interface {
+	HandleMessage(*HandlerContext, []byte, []byte) error
+}
+
+
+// 注册处理器。
+type RegisterHandler interface {
+	RegisterManualResponseHandler(uint32, []byte, uint32, []byte, MessageHandler) error
+	RegisterRequestResponseHandler(uint32, []byte, uint32, []byte, MessageHandler) error
+	RegisterOneWayHandler(uint32, []byte, MessageHandler) error
+}
+
 // HandleFuncType 是 gnet typed 模式下的请求/响应处理函数。
 type HandleFuncType func(*GNetConn, uint64, proto.Message, proto.Message)
 
