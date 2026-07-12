@@ -5,6 +5,7 @@ import (
 	"go.local/su_errors"
 	"reflect"
 	"time"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -24,9 +25,67 @@ type DataHandler interface {
 
 // 注册处理器。
 type RegisterHandler interface {
-	RegisterManualResponseHandler(uint32, []byte, uint32, []byte, MessageHandler) error
-	RegisterRequestResponseHandler(uint32, []byte, uint32, []byte, MessageHandler) error
-	RegisterOneWayHandler(uint32, []byte, MessageHandler) error
+	RegisterManualResponseHandler(uint32, uint32, MessageHandler) error
+	RegisterRequestResponseHandler(uint32, uint32, MessageHandler) error
+	RegisterOneWayHandler(uint32, MessageHandler) error
+}
+
+type TcpNetDataHandler struct {
+	rqId   		uint32
+	rsId   		uint32
+	handler 	MessageHandler
+}
+
+func (tndh *TcpNetDataHandler) HandleMessage(ctx *HandlerContext, req []byte, rsp []byte) error {
+	return nil
+}
+
+type TcpNetHandler struct {
+	packetHandlerMap map[uint32]*TcpNetDataHandler
+	packetHandlerMapMux sync.Mutex
+}
+
+func (rh *TcpNetHandler) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	tndh := &TcpNetDataHandler{
+		rqId:    rqPackId,
+		rsId:    rsPackId,
+		handler: handler,
+	}
+	rh.packetHandlerMapMux.Lock()
+	defer rh.packetHandlerMapMux.Unlock()
+	rh.packetHandlerMap[rsPackId] = tndh
+	return nil
+}
+
+func (rh *TcpNetHandler) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	tndh := &TcpNetDataHandler{
+		rqId:    rqPackId,
+		rsId:    rsPackId,
+		handler: handler,
+	}
+	rh.packetHandlerMapMux.Lock()
+	defer rh.packetHandlerMapMux.Unlock()
+	rh.packetHandlerMap[rqPackId] = tndh
+	return nil
+}
+
+func (rh *TcpNetHandler) RegisterOneWayHandler(rqPackId uint32, handler MessageHandler) error {
+	tndh := &TcpNetDataHandler{
+		rqId:    rqPackId,
+		rsId:    0,
+		handler: handler,
+	}
+	rh.packetHandlerMapMux.Lock()
+	defer rh.packetHandlerMapMux.Unlock()
+	rh.packetHandlerMap[rqPackId] = tndh
+	return nil
+}
+
+func (rh *TcpNetHandler) GetTcpNetDataHandler(rsPackId uint32) (*TcpNetDataHandler, bool) {
+	rh.packetHandlerMapMux.Lock()
+	defer rh.packetHandlerMapMux.Unlock()
+	handler, exists := rh.packetHandlerMap[rsPackId]
+	return handler, exists
 }
 
 // HandleFuncType 是 gnet typed 模式下的请求/响应处理函数。

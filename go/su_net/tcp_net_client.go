@@ -15,7 +15,7 @@ import (
 type TcpClient struct {
 	Addr              string        // 远端 TCP 地址。
 	Conn              *TcpConn      // 当前活跃 TCP 连接。
-	handler           TcpHandler    // 业务包处理函数。
+	// handler           TcpHandler    // 业务包处理函数。
 	done              chan struct{} // 心跳 goroutine 停止信号。
 	stopOnce          sync.Once     // 保证心跳停止信号只关闭一次。
 	connMu            sync.RWMutex  // 保护 Conn 替换和读取。
@@ -24,16 +24,16 @@ type TcpClient struct {
 	reconnecting      int32         // 是否正在重连，按 atomic 访问。
 	reconnectInterval time.Duration // 自动重连间隔。
 	writeTimeout      int64         // 写超时，存储为 time.Duration 的 int64。
-	dataHandler 	  DataHandler   // 业务数据包处理函数。
+	dataHandler 	  TcpNetHandler   // 业务数据包处理函数。
 }
 
 // CreateTcpClient 使用默认配置连接 TCP 服务端。
-func CreateTcpClient(addr string, handlers ...TcpHandler) (*TcpClient, error) {
-	return CreateTcpClientWithConfig(addr, DefaultTcpNetConfig(), handlers...)
+func CreateTcpClient(addr string) (*TcpClient, error) {
+	return CreateTcpClientWithConfig(addr, DefaultTcpNetConfig())
 }
 
 // CreateTcpClientWithConfig 使用指定配置连接 TCP 服务端。
-func CreateTcpClientWithConfig(addr string, cfg TcpNetConfig, handlers ...TcpHandler) (*TcpClient, error) {
+func CreateTcpClientWithConfig(addr string, cfg TcpNetConfig) (*TcpClient, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, su_errors.Wrap(su_errors.CodeInvalidArgument, "resolve tcp addr failed", err)
@@ -49,9 +49,9 @@ func CreateTcpClientWithConfig(addr string, cfg TcpNetConfig, handlers ...TcpHan
 		reconnectInterval: time.Duration(RECONNECT_INTERVAL) * time.Second,
 		writeTimeout:      int64(cfg.WriteTimeout),
 	}
-	if len(handlers) > 0 {
-		client.handler = handlers[0]
-	}
+	// if len(handlers) > 0 {
+	// 	client.handler = handlers[0]
+	// }
 	client.startReadLoop(client.Conn)
 	go client.heartbeatLoop()
 	return client, nil
@@ -115,7 +115,7 @@ func (tc *TcpClient) startReadLoop(conn *TcpConn) {
 		return
 	}
 	go func() {
-		conn.readLoop(tc.handler)
+		conn.readLoop(tc.HandleMessage)
 		if !tc.isCurrentConn(conn) {
 			return
 		}
@@ -257,4 +257,27 @@ func (tc *TcpClient) Close() error {
 		return nil
 	}
 	return conn.Close()
+}
+
+func (tc *TcpClient) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	tc.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
+	return nil
+}
+
+func (tc *TcpClient) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	tc.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
+	return nil
+}
+
+func (tc *TcpClient) RegisterOneWayHandler(rqPackId uint32, handler MessageHandler) error {
+	tc.dataHandler.RegisterOneWayHandler(rqPackId, handler)
+	return nil
+}
+
+func (tc *TcpClient) HandleMessage(conn *TcpConn, dp *DataProtocol) {
+	handler, ok := tc.dataHandler.GetTcpNetDataHandler(dp.Head.PackId)
+	if !ok {
+		return
+	}
+	handler.HandleMessage(&HandlerContext{Conn: conn, Packet: dp}, dp.Data, nil)
 }
