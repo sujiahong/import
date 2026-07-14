@@ -1,8 +1,6 @@
 package su_net
 
 import (
-	"context"
-	"fmt"
 	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.local/su_util"
@@ -10,12 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/panjf2000/gnet/v2"
 	"go.uber.org/zap"
 )
 
-// GTcpClient 基于 gnet 管理多条 TCP 客户端连接、心跳、重连和请求响应映射。
+// GTcpClient 基于 gnet 管理多条 TCP 客户端连接、心跳、重连和业务包分发。
 type GTcpClient struct {
 	gnet.BuiltinEventEngine                  // gnet 事件引擎嵌入字段。
 	*gnet.Client                             // 底层 gnet client。
@@ -27,12 +24,8 @@ type GTcpClient struct {
 	connMu                  sync.RWMutex     // 保护 connList 和 pool 惰性创建。
 	connList                []*GNetConn      // 当前可用连接列表。
 	pool                    *su_util.GoPool  // 包处理 worker 池。
-	regHandlerMap           sync.Map         // 响应包 ID 到 HandlerFuncST 的映射。
-	rawHandler              GNetRawHandler   // raw 模式处理函数。
+	dataHandler             *TcpNetHandler   // 业务数据包处理函数。
 	dispatchMode            GNetDispatchMode // 包处理分发模式。
-	pendingRQMap            sync.Map         // route id 到 pending 请求的映射。
-	pendingEnabled          int32            // 是否记录 pending 请求，按 atomic 访问。
-	requestTimeout          time.Duration    // pending 请求过期时间。
 	sendSeq                 uint64           // 轮询连接发送的序号。
 	stopOnce                sync.Once        // 保证 Stop 只执行一次。
 	stopErr                 error            // Stop 返回的底层错误。
@@ -73,20 +66,16 @@ func (tc *GTcpClient) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	if closedConn != nil {
 		closedConn.markClosed()
 	}
-	if tc.ConnCount() == 0 {
-		tc.clearPendingRequests()
-	}
 	if atomic.LoadInt32(&tc.state) != 0 {
 		tc.Reconnect()
 	}
 	return
 }
 
-// OnTick 是 gnet 定时回调，用于心跳检查、pending 请求清理和连接数补齐。
+// OnTick 是 gnet 定时回调，用于心跳检查和连接数补齐。
 func (tc *GTcpClient) OnTick() (delay time.Duration, action gnet.Action) {
 	slog.Info("client tick, 发送 心跳", zap.Int32("tc.reconnectState", atomic.LoadInt32(&tc.reconnectState)), zap.Int32("tc.state", atomic.LoadInt32(&tc.state)))
 	delay = time.Duration(PING_PONG_INTERVAL) * time.Second
-	tc.cleanupExpiredPendingRequests()
 	var count uint8 = 0
 	tc.connMap.Range(func(k, v interface{}) bool {
 		key_str := k.(string)
@@ -177,44 +166,21 @@ func (tc *GTcpClient) ensurePool() *su_util.GoPool {
 	return tc.pool
 }
 
-// handleClientPacket 处理客户端收到的 PONG、raw 包或已注册响应包。
+// handleClientPacket 处理客户端收到的 PONG 或已注册响应包。
 func (tc *GTcpClient) handleClientPacket(gconn *GNetConn, dp *DataProtocol) {
 	if dp.Head.PackId == PONG {
 		pongHandler(gconn, dp)
 		return
 	}
-	if tc.rawHandler != nil {
-		tc.rawHandler(gconn, dp)
+	if tc == nil || tc.dataHandler == nil {
+		slog.Error("gnet client handler unavailable")
 		return
 	}
-	v, ok := tc.regHandlerMap.Load(dp.Head.PackId)
-	if !ok {
-		slog.Error("未识别的包ID", zap.String("remote addr", gconn.RemoteAddr),
-			zap.Uint32("packid", dp.Head.PackId))
-		return
-	}
-	handleST := v.(*HandlerFuncST)
-	rs := newProtoFromType(handleST.RSType)
-	if err := proto.Unmarshal(dp.Data, rs); err != nil {
-		slog.Error("proto.Unmarshal 失败", zap.Error(err))
-		return
-	}
-	rq := newProtoFromType(handleST.RQType)
-	if tc.pendingRequestsEnabled() {
-		if pendingRQ, ok := tc.pendingRQMap.LoadAndDelete(dp.Head.RouteId); ok {
-			switch pending := pendingRQ.(type) {
-			case *pendingGNetRequest:
-				rq = pending.rq
-			case proto.Message:
-				rq = pending
-			}
-		}
-	}
-	handleST.HandleFunc(gconn, dp.Head.RouteId, rq, rs)
+	dispatchTcpNetHandler(tc.dataHandler, &HandlerContext{Conn: gconn, Packet: dp})
 }
 
-// send 将已编码数据轮询发送到当前可用连接。
-func (tc *GTcpClient) send(a_bytes []byte) (err error) {
+// sendBytes 将已编码数据轮询发送到当前可用连接。
+func (tc *GTcpClient) sendBytes(aBytes []byte) error {
 	tc.connMu.RLock()
 	connCount := len(tc.connList)
 	if connCount == 0 {
@@ -224,62 +190,13 @@ func (tc *GTcpClient) send(a_bytes []byte) (err error) {
 	target := int(atomic.AddUint64(&tc.sendSeq, 1)-1) % connCount
 	gconn := tc.connList[target]
 	tc.connMu.RUnlock()
-	return gconn.Send(a_bytes)
+	return gconn.SendBytes(aBytes)
 }
 
-// SendError 发送 typed 请求，并在开启 pending 时记录请求用于响应回调。
-func (tc *GTcpClient) SendError(a_rq_id, a_rs_id uint32, a_msg proto.Message) error {
-	return tc.sendProto(a_rq_id, a_rs_id, a_msg, tc.pendingRequestsEnabled())
-}
-
-// SendNoPending 发送 typed 请求，但不记录 pending 请求。
-func (tc *GTcpClient) SendNoPending(a_rq_id, a_rs_id uint32, a_msg proto.Message) error {
-	return tc.sendProto(a_rq_id, a_rs_id, a_msg, false)
-}
-
-// sendProto 将 proto 消息编码成协议包并发送，可选记录 pending 请求。
-func (tc *GTcpClient) sendProto(a_rq_id, a_rs_id uint32, a_msg proto.Message, trackPending bool) error {
-	_, ok := tc.regHandlerMap.Load(a_rs_id)
-	if ok {
-		var rq_dp DataProtocol
-		routeID := nextRouteID()
-		micro_time := uint64(time.Now().UnixNano() / 1000)
-		rq_dp.Head.PackId = a_rq_id
-		rq_dp.Head.HeadUuid = micro_time
-		rq_dp.Head.RouteId = routeID
-		bs, err := proto.Marshal(a_msg)
-		if err != nil {
-			slog.Error("proto.Marshal 失败", zap.Error(err))
-			return err
-		}
-		rq_dp.Data = bs
-		rq_bytes, err := Encode(&rq_dp)
-		if err != nil {
-			slog.Error("rq_dp 封包失败", zap.Error(err))
-			return err
-		}
-		if trackPending {
-			tc.pendingRQMap.Store(rq_dp.Head.RouteId, &pendingGNetRequest{rq: proto.Clone(a_msg), createdAt: time.Now()})
-		}
-		if err := tc.send(rq_bytes); err != nil {
-			if trackPending {
-				tc.pendingRQMap.Delete(rq_dp.Head.RouteId)
-			}
-			slog.Error("client send failed", zap.Error(err))
-			return err
-		}
-		return nil
-	} else {
-		err := su_errors.New(su_errors.CodeNotFound, fmt.Sprintf("unregistered response packet id %d", a_rs_id))
-		slog.Error("发包未识别的包ID", zap.Uint32("packid", a_rs_id))
-		return err
-	}
-}
-
-// SendPacket 编码 DataProtocol 后发送到当前连接。
-func (tc *GTcpClient) SendPacket(dp *DataProtocol) error {
-	if dp == nil {
-		return su_errors.New(su_errors.CodeInvalidArgument, "nil data protocol")
+// Send 通过当前可用连接发送数据包。
+func (tc *GTcpClient) Send(dp *DataProtocol) error {
+	if tc == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
 	}
 	bs, err := Encode(dp)
 	if err != nil {
@@ -290,134 +207,22 @@ func (tc *GTcpClient) SendPacket(dp *DataProtocol) error {
 
 // SendBytes 发送已编码数据，空数据会被忽略。
 func (tc *GTcpClient) SendBytes(bs []byte) error {
-	if len(bs) == 0 {
-		return nil
-	}
-	return tc.send(bs)
-}
-
-// SendContext 发送 typed 请求；遇到 retryable 错误时会尝试重连并在 context 内重试一次。
-func (tc *GTcpClient) SendContext(ctx context.Context, a_rq_id, a_rs_id uint32, a_msg proto.Message) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	err := tc.SendError(a_rq_id, a_rs_id, a_msg)
-	if err == nil {
-		return nil
-	}
-	if su_errors.Retryable(err) {
-		tc.Reconnect()
-		if waitErr := tc.waitForConnection(ctx); waitErr != nil {
-			return waitErr
-		}
-		err = tc.SendError(a_rq_id, a_rs_id, a_msg)
-		if err == nil {
-			return nil
-		}
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return err
-	}
-}
-
-// waitForConnection 等待客户端恢复到至少一条可用连接。
-func (tc *GTcpClient) waitForConnection(ctx context.Context) error {
 	if tc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
 	}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if atomic.LoadInt32(&tc.state) == 0 {
-			return su_errors.New(su_errors.CodeUnavailable, "client stopped")
-		}
-		if tc.ConnCount() > 0 {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
+	if len(bs) == 0 {
+		return nil
 	}
+	return tc.sendBytes(bs)
 }
 
-// Send 兼容旧接口发送 typed 请求，错误只记录日志。
-func (tc *GTcpClient) Send(a_rq_id, a_rs_id uint32, a_msg proto.Message) {
-	if err := tc.SendError(a_rq_id, a_rs_id, a_msg); err != nil {
-		slog.Error("gnet client send failed", zap.Error(err))
-	}
-}
-
-// cleanupExpiredPendingRequests 删除超过请求超时时间的 pending 请求。
-func (tc *GTcpClient) cleanupExpiredPendingRequests() {
-	if tc == nil {
-		return
-	}
-	if !tc.pendingRequestsEnabled() {
-		return
-	}
-	timeout := tc.requestTimeout
-	if timeout <= 0 {
-		timeout = DEFAULT_REQUEST_TIMEOUT
-	}
-	now := time.Now()
-	expiredKeys := make([]interface{}, 0)
-	tc.pendingRQMap.Range(func(k, v interface{}) bool {
-		pending, ok := v.(*pendingGNetRequest)
-		if !ok || now.Sub(pending.createdAt) >= timeout {
-			expiredKeys = append(expiredKeys, k)
-		}
-		return true
-	})
-	for _, key := range expiredKeys {
-		tc.pendingRQMap.Delete(key)
-		slog.Warn("gnet pending request expired", zap.Any("route_id", key))
-	}
-}
-
-// clearPendingRequests 清空所有等待响应的请求。
-func (tc *GTcpClient) clearPendingRequests() {
-	if tc == nil {
-		return
-	}
-	deleteAllSyncMap(&tc.pendingRQMap)
-}
-
-// pendingRequestsEnabled 返回是否启用 pending 请求记录。
-func (tc *GTcpClient) pendingRequestsEnabled() bool {
-	return tc != nil && atomic.LoadInt32(&tc.pendingEnabled) == 1
-}
-
-// SetPendingRequestsEnabled 开关 pending 请求记录；关闭时会清空现有 pending。
-func (tc *GTcpClient) SetPendingRequestsEnabled(enabled bool) {
-	if tc == nil {
-		return
-	}
-	if enabled {
-		atomic.StoreInt32(&tc.pendingEnabled, 1)
-		return
-	}
-	atomic.StoreInt32(&tc.pendingEnabled, 0)
-	tc.clearPendingRequests()
-}
-
-// Stop 停止 gnet client、清理 pending 请求并关闭 worker 池。
+// Stop 停止 gnet client 并关闭 worker 池。
 func (tc *GTcpClient) Stop() (err error) {
 	if tc == nil {
 		return nil
 	}
 	tc.stopOnce.Do(func() {
 		atomic.StoreInt32(&tc.state, 0)
-		tc.clearPendingRequests()
 		if tc.Client != nil {
 			tc.stopErr = tc.Client.Stop()
 		}
@@ -481,25 +286,30 @@ func (tc *GTcpClient) Reconnect() {
 	})
 }
 
-// RegisterHandler 注册请求/响应包 ID、proto 模板和处理函数。
-func (tc *GTcpClient) RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_id uint32, a_rs proto.Message, a_hndle HandleFuncType) {
-	rqType, err := newProtoType(a_rq)
-	if err != nil {
-		slog.Error("new rq proto factory failed", zap.Error(err))
-		return
+func (tc *GTcpClient) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if tc == nil || tc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client or dataHandler is nil")
 	}
-	rsType, err := newProtoType(a_rs)
-	if err != nil {
-		slog.Error("new rs proto factory failed", zap.Error(err))
-		return
+	return tc.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (tc *GTcpClient) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if tc == nil || tc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client or dataHandler is nil")
 	}
-	st := &HandlerFuncST{RQ: a_rq, RQPackId: a_rq_id, RS: a_rs, RSPackId: a_rs_id, HandleFunc: a_hndle, RQType: rqType, RSType: rsType}
-	tc.regHandlerMap.Store(a_rs_id, st)
+	return tc.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (tc *GTcpClient) RegisterOneWayHandler(packId uint32, handler MessageHandler) error {
+	if tc == nil || tc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client or dataHandler is nil")
+	}
+	return tc.dataHandler.RegisterOneWayHandler(packId, handler)
 }
 
 // CreateGNetClient 创建 gnet TCP client 并建立指定数量连接。
 func CreateGNetClient(a_addr string, a_conn_num uint8) *GTcpClient {
-	tc := &GTcpClient{remote_addr: a_addr, state: 1, cfgConnNum: a_conn_num, dispatchMode: GNetDispatchInline, pendingEnabled: 1, requestTimeout: DEFAULT_REQUEST_TIMEOUT}
+	tc := &GTcpClient{remote_addr: a_addr, state: 1, cfgConnNum: a_conn_num, dispatchMode: GNetDispatchInline, dataHandler: newTcpNetHandler()}
 
 	client, err := gnet.NewClient(tc, gnet.WithTCPNoDelay(gnet.TCPDelay), gnet.WithTCPKeepAlive(30*time.Second), gnet.WithTicker(true))
 	if err != nil {
@@ -522,23 +332,6 @@ func CreateGNetClient(a_addr string, a_conn_num uint8) *GTcpClient {
 // CreateClient 是 CreateGNetClient 的兼容别名。
 func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient {
 	return CreateGNetClient(a_addr, a_conn_num)
-}
-
-// CreateGNetRawClient 创建 raw 模式 gnet TCP client。
-func CreateGNetRawClient(a_addr string, a_conn_num uint8, handler GNetRawHandler) *GTcpClient {
-	tc := CreateGNetClient(a_addr, a_conn_num)
-	if tc != nil {
-		tc.rawHandler = handler
-	}
-	return tc
-}
-
-// SetRawHandler 设置 raw 数据包处理函数。
-func (tc *GTcpClient) SetRawHandler(handler GNetRawHandler) {
-	if tc == nil {
-		return
-	}
-	tc.rawHandler = handler
 }
 
 // SetDispatchMode 设置 gnet 客户端包处理模式。

@@ -51,9 +51,13 @@ func main() {
 
 	payload := strings.Repeat("x", *payloadBytes)
 	cfg := su_net.TcpNetConfig{WriteTimeout: *writeTimeout}
-	server, err := su_net.CreateTcpServerWithConfig(*addr, cfg, func(conn *su_net.TcpConn, dp *su_net.DataProtocol) {
+	server, err := su_net.CreateTcpServerWithConfig(*addr, cfg)
+	if err != nil {
+		panic(err)
+	}
+	if err := server.RegisterRequestResponseHandler(10000, 10001, func(ctx *su_net.HandlerContext, req []byte) error {
 		rq := &testpb.TestRQ{}
-		if err := proto.Unmarshal(dp.Data, rq); err != nil {
+		if err := proto.Unmarshal(req, rq); err != nil {
 			panic(err)
 		}
 		rsBytes, err := proto.Marshal(&testpb.TestRS{
@@ -63,19 +67,9 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		err = conn.Send(&su_net.DataProtocol{
-			Head: su_net.Header{
-				PackId:   dp.Head.PackId + 1,
-				RouteId:  dp.Head.RouteId,
-				HeadUuid: dp.Head.HeadUuid,
-			},
-			Data: rsBytes,
-		})
-		if err != nil {
-			panic(err)
-		}
-	})
-	if err != nil {
+		ctx.SetResponse(rsBytes)
+		return nil
+	}); err != nil {
 		panic(err)
 	}
 	defer server.Close()
@@ -86,17 +80,21 @@ func main() {
 	var doneOnce sync.Once
 	clients := make([]*su_net.TcpClient, 0, *clientCount)
 	for i := 0; i < *clientCount; i++ {
-		client, err := su_net.CreateTcpClientWithConfig(server.Addr, cfg, func(conn *su_net.TcpConn, dp *su_net.DataProtocol) {
+		client, err := su_net.CreateTcpClientWithConfig(server.Addr, cfg)
+		if err != nil {
+			panic(err)
+		}
+		if err := client.RegisterOneWayHandler(10001, func(ctx *su_net.HandlerContext, req []byte) error {
 			rs := &testpb.TestRS{}
-			if err := proto.Unmarshal(dp.Data, rs); err != nil {
+			if err := proto.Unmarshal(req, rs); err != nil {
 				panic(err)
 			}
 			<-sem
 			if atomic.AddUint64(&received, 1) == uint64(*requests) {
 				doneOnce.Do(func() { close(done) })
 			}
-		})
-		if err != nil {
+			return nil
+		}); err != nil {
 			panic(err)
 		}
 		clients = append(clients, client)

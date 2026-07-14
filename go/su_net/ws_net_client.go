@@ -15,26 +15,26 @@ import (
 
 // WSClient 管理一个 WebSocket 客户端连接、心跳检查和可选自动重连。
 type WSClient struct {
-	Addr              string        // WebSocket URL。
-	Conn              *WSConn       // 当前活跃 WebSocket 连接。
-	handler           WSHandler     // 业务包处理函数。
-	done              chan struct{} // 心跳 goroutine 停止信号。
-	stopOnce          sync.Once     // 保证心跳停止信号只关闭一次。
-	connMu            sync.RWMutex  // 保护 Conn 替换和读取。
-	closed            int32         // client 是否已关闭，按 atomic 访问。
-	reconnectEnabled  int32         // 是否启用自动重连，按 atomic 访问。
-	reconnecting      int32         // 是否正在重连，按 atomic 访问。
-	reconnectInterval time.Duration // 自动重连间隔。
-	writeTimeout      int64         // 写超时，存储为 time.Duration 的 int64。
+	Addr              string         // WebSocket URL。
+	Conn              *WSConn        // 当前活跃 WebSocket 连接。
+	done              chan struct{}  // 心跳 goroutine 停止信号。
+	stopOnce          sync.Once      // 保证心跳停止信号只关闭一次。
+	connMu            sync.RWMutex   // 保护 Conn 替换和读取。
+	closed            int32          // client 是否已关闭，按 atomic 访问。
+	reconnectEnabled  int32          // 是否启用自动重连，按 atomic 访问。
+	reconnecting      int32          // 是否正在重连，按 atomic 访问。
+	reconnectInterval time.Duration  // 自动重连间隔。
+	writeTimeout      int64          // 写超时，存储为 time.Duration 的 int64。
+	dataHandler       *TcpNetHandler // 业务数据包处理函数。
 }
 
 // CreateWSClient 使用默认配置连接 WebSocket 服务端。
-func CreateWSClient(addr string, handlers ...WSHandler) (*WSClient, error) {
-	return CreateWSClientWithConfig(addr, DefaultWSNetConfig(), handlers...)
+func CreateWSClient(addr string) (*WSClient, error) {
+	return CreateWSClientWithConfig(addr, DefaultWSNetConfig())
 }
 
 // CreateWSClientWithConfig 使用指定配置连接 WebSocket 服务端。
-func CreateWSClientWithConfig(addr string, cfg WSNetConfig, handlers ...WSHandler) (*WSClient, error) {
+func CreateWSClientWithConfig(addr string, cfg WSNetConfig) (*WSClient, error) {
 	url := normalizeWSURL(addr)
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -47,9 +47,7 @@ func CreateWSClientWithConfig(addr string, cfg WSNetConfig, handlers ...WSHandle
 		reconnectInterval: time.Duration(RECONNECT_INTERVAL) * time.Second,
 		writeTimeout:      int64(cfg.WriteTimeout),
 	}
-	if len(handlers) > 0 {
-		client.handler = handlers[0]
-	}
+	client.dataHandler = newTcpNetHandler()
 	client.startReadLoop(client.Conn)
 	go client.heartbeatLoop()
 	return client, nil
@@ -121,7 +119,7 @@ func (wc *WSClient) startReadLoop(conn *WSConn) {
 		return
 	}
 	go func() {
-		conn.readLoop(wc.handler)
+		conn.readLoop(wc.HandleMessage)
 		if !wc.isCurrentConn(conn) {
 			return
 		}
@@ -259,4 +257,33 @@ func (wc *WSClient) Close() error {
 		return nil
 	}
 	return conn.Close()
+}
+
+func (wc *WSClient) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if wc == nil || wc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "wc or wc.dataHandler is nil")
+	}
+	return wc.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (wc *WSClient) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if wc == nil || wc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "wc or wc.dataHandler is nil")
+	}
+	return wc.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (wc *WSClient) RegisterOneWayHandler(packId uint32, handler MessageHandler) error {
+	if wc == nil || wc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "wc or wc.dataHandler is nil")
+	}
+	return wc.dataHandler.RegisterOneWayHandler(packId, handler)
+}
+
+func (wc *WSClient) HandleMessage(conn *WSConn, dp *DataProtocol) {
+	if wc == nil || wc.dataHandler == nil || dp == nil {
+		slog.Error("websocket client handler unavailable")
+		return
+	}
+	dispatchTcpNetHandler(wc.dataHandler, &HandlerContext{Conn: conn, Packet: dp})
 }

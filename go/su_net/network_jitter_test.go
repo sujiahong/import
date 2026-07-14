@@ -101,29 +101,34 @@ func (p *jitterTCPProxy) copyWithJitter(dst net.Conn, src net.Conn) {
 
 func TestTcpNetThroughJitterProxy(t *testing.T) {
 	got := make(chan DataProtocol, 32)
-	server, err := CreateTcpServer("127.0.0.1:0", func(conn *TcpConn, dp *DataProtocol) {
-		if err := conn.Send(&DataProtocol{
-			Head: Header{PackId: dp.Head.PackId + 1, RouteId: dp.Head.RouteId, HeadUuid: dp.Head.HeadUuid},
-			Data: append([]byte(nil), dp.Data...),
-		}); err != nil {
-			t.Errorf("server Send() error = %v", err)
-		}
-	})
+	server, err := CreateTcpServer("127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("CreateTcpServer() error = %v", err)
 	}
 	defer server.Close()
+	if err := server.RegisterRequestResponseHandler(10, 11, func(ctx *HandlerContext, req []byte) error {
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
 
 	proxy := newJitterTCPProxy(t, server.Addr, 3, time.Millisecond)
 	defer proxy.close()
 
-	client, err := CreateTcpClient(proxy.addr(), func(conn *TcpConn, dp *DataProtocol) {
-		got <- *dp
-	})
+	client, err := CreateTcpClient(proxy.addr())
 	if err != nil {
 		t.Fatalf("CreateTcpClient() error = %v", err)
 	}
 	defer client.Close()
+	if err := client.RegisterOneWayHandler(11, func(ctx *HandlerContext, req []byte) error {
+		dp := *ctx.Packet
+		dp.Data = append([]byte(nil), req...)
+		got <- dp
+		return nil
+	}); err != nil {
+		t.Fatalf("RegisterOneWayHandler() error = %v", err)
+	}
 
 	const requests = 20
 	for i := 0; i < requests; i++ {
@@ -156,29 +161,34 @@ func TestTcpNetThroughJitterProxy(t *testing.T) {
 
 func TestWSNetThroughJitterProxy(t *testing.T) {
 	got := make(chan DataProtocol, 32)
-	server, err := CreateWSServer("127.0.0.1:0", func(conn *WSConn, dp *DataProtocol) {
-		if err := conn.Send(&DataProtocol{
-			Head: Header{PackId: dp.Head.PackId + 1, RouteId: dp.Head.RouteId, HeadUuid: dp.Head.HeadUuid},
-			Data: append([]byte(nil), dp.Data...),
-		}); err != nil {
-			t.Errorf("server Send() error = %v", err)
-		}
-	})
+	server, err := CreateWSServer("127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("CreateWSServer() error = %v", err)
 	}
 	defer server.Close()
+	if err := server.RegisterRequestResponseHandler(20, 21, func(ctx *HandlerContext, req []byte) error {
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
 
 	proxy := newJitterTCPProxy(t, server.Addr, 5, time.Millisecond)
 	defer proxy.close()
 
-	client, err := CreateWSClient(proxy.addr(), func(conn *WSConn, dp *DataProtocol) {
-		got <- *dp
-	})
+	client, err := CreateWSClient(proxy.addr())
 	if err != nil {
 		t.Fatalf("CreateWSClient() error = %v", err)
 	}
 	defer client.Close()
+	if err := client.RegisterOneWayHandler(21, func(ctx *HandlerContext, req []byte) error {
+		dp := *ctx.Packet
+		dp.Data = append([]byte(nil), req...)
+		got <- dp
+		return nil
+	}); err != nil {
+		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
+	}
 
 	const requests = 20
 	for i := 0; i < requests; i++ {

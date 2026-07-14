@@ -1,27 +1,84 @@
 package su_net
 
 import (
-	"fmt"
-	"go.local/su_errors"
-	"reflect"
-	"time"
 	"sync"
 
-	"github.com/golang/protobuf/proto"
+	"go.local/su_errors"
+	slog "go.local/su_log"
+
+	"go.uber.org/zap"
 )
 
 type HandlerContext struct {
-    Conn   any
-    Packet *DataProtocol
-}
-// MessageHandler 是函数式处理器，和 DataHandler.HandleMessage 保持同一签名。
-type MessageHandler func(ctx *HandlerContext, req []byte, rsp []byte) error
+	Conn   any
+	Packet *DataProtocol
 
-// 数据处理器接口。
-type DataHandler interface {
-	HandleMessage(*HandlerContext, []byte, []byte) error
+	responsePackID uint32
+	responseData   []byte
+	skipAutoResp   bool
 }
 
+type dataProtocolSender interface {
+	Send(*DataProtocol) error
+}
+
+type packetSender interface {
+	SendPacket(*DataProtocol) error
+}
+
+func (ctx *HandlerContext) SendPacket(dp *DataProtocol) error {
+	if ctx == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "handler context is nil")
+	}
+	if dp == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "data protocol is nil")
+	}
+	switch conn := ctx.Conn.(type) {
+	case packetSender:
+		return conn.SendPacket(dp)
+	case dataProtocolSender:
+		return conn.Send(dp)
+	default:
+		return su_errors.New(su_errors.CodeInvalidArgument, "handler context conn does not support packet send")
+	}
+}
+
+func (ctx *HandlerContext) SetResponse(data []byte) {
+	if ctx == nil {
+		return
+	}
+	ctx.responseData = data
+}
+
+func (ctx *HandlerContext) SkipAutoResponse() {
+	if ctx == nil {
+		return
+	}
+	ctx.skipAutoResp = true
+}
+
+func (ctx *HandlerContext) SendResponse(data []byte) error {
+	if ctx == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "handler context is nil")
+	}
+	if ctx.Packet == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "handler context packet is nil")
+	}
+	if ctx.responsePackID == 0 {
+		return su_errors.New(su_errors.CodeInvalidArgument, "response pack id is empty")
+	}
+	return ctx.SendPacket(&DataProtocol{
+		Head: Header{
+			PackId:   ctx.responsePackID,
+			RouteId:  ctx.Packet.Head.RouteId,
+			HeadUuid: ctx.Packet.Head.HeadUuid,
+		},
+		Data: data,
+	})
+}
+
+// MessageHandler 是函数式网络消息处理器。
+type MessageHandler func(ctx *HandlerContext, msg []byte) error
 
 // 注册处理器。
 type RegisterHandler interface {
@@ -30,66 +87,113 @@ type RegisterHandler interface {
 	RegisterOneWayHandler(uint32, MessageHandler) error
 }
 
+const (
+	tcpNetRegisterManual uint32 = 1
+	tcpNetRegisterAuto   uint32 = 2
+	tcpNetRegisterOneWay uint32 = 3
+)
+
 type TcpNetDataHandler struct {
-	rqId   		uint32
-	rsId   		uint32
-	handler 	MessageHandler
+	registerType uint32 /////注册类型   0 不处理  1 手动回包， 2 自动回包，3 不回包
+	rqId         uint32
+	rsId         uint32
+	handler      MessageHandler
 }
 
-func (tndh *TcpNetDataHandler) HandleMessage(ctx *HandlerContext, req []byte, rsp []byte) error {
-	return nil
+func (tndh *TcpNetDataHandler) HandleMessage(ctx *HandlerContext, msg []byte) error {
+	if tndh == nil || tndh.handler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "tcp net data handler is nil")
+	}
+	return tndh.handler(ctx, msg)
 }
 
 type TcpNetHandler struct {
-	packetHandlerMap map[uint32]*TcpNetDataHandler
-	packetHandlerMapMux sync.Mutex
+	packetHandlerMap    map[uint32]*TcpNetDataHandler
+	packetHandlerMapMux sync.RWMutex
+}
+
+func newTcpNetHandler() *TcpNetHandler {
+	return &TcpNetHandler{
+		packetHandlerMap: make(map[uint32]*TcpNetDataHandler, 5),
+	}
+}
+
+func (rh *TcpNetHandler) registerHandler(registerType uint32, dispatchPackId uint32, rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if rh == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "tcp net handler is nil")
+	}
+	if handler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "message handler is nil")
+	}
+	if dispatchPackId == PING || dispatchPackId == PONG {
+		return su_errors.New(su_errors.CodeInvalidArgument, "cannot register control packet handler")
+	}
+	if (registerType == tcpNetRegisterManual || registerType == tcpNetRegisterAuto) && rsPackId == 0 {
+		return su_errors.New(su_errors.CodeInvalidArgument, "response pack id is empty")
+	}
+	tndh := &TcpNetDataHandler{
+		registerType: registerType,
+		rqId:         rqPackId,
+		rsId:         rsPackId,
+		handler:      handler,
+	}
+	rh.packetHandlerMapMux.Lock()
+	defer rh.packetHandlerMapMux.Unlock()
+	if rh.packetHandlerMap == nil {
+		rh.packetHandlerMap = make(map[uint32]*TcpNetDataHandler, 5)
+	}
+	if _, ok := rh.packetHandlerMap[dispatchPackId]; ok {
+		return su_errors.New(su_errors.CodeInvalidArgument, "message handler already registered")
+	}
+	rh.packetHandlerMap[dispatchPackId] = tndh
+	return nil
 }
 
 func (rh *TcpNetHandler) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
-	tndh := &TcpNetDataHandler{
-		rqId:    rqPackId,
-		rsId:    rsPackId,
-		handler: handler,
-	}
-	rh.packetHandlerMapMux.Lock()
-	defer rh.packetHandlerMapMux.Unlock()
-	rh.packetHandlerMap[rsPackId] = tndh
-	return nil
+	return rh.registerHandler(tcpNetRegisterManual, rqPackId, rqPackId, rsPackId, handler)
 }
 
 func (rh *TcpNetHandler) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
-	tndh := &TcpNetDataHandler{
-		rqId:    rqPackId,
-		rsId:    rsPackId,
-		handler: handler,
-	}
-	rh.packetHandlerMapMux.Lock()
-	defer rh.packetHandlerMapMux.Unlock()
-	rh.packetHandlerMap[rqPackId] = tndh
-	return nil
+	return rh.registerHandler(tcpNetRegisterAuto, rqPackId, rqPackId, rsPackId, handler)
 }
 
-func (rh *TcpNetHandler) RegisterOneWayHandler(rqPackId uint32, handler MessageHandler) error {
-	tndh := &TcpNetDataHandler{
-		rqId:    rqPackId,
-		rsId:    0,
-		handler: handler,
-	}
-	rh.packetHandlerMapMux.Lock()
-	defer rh.packetHandlerMapMux.Unlock()
-	rh.packetHandlerMap[rqPackId] = tndh
-	return nil
+func (rh *TcpNetHandler) RegisterOneWayHandler(rsPackId uint32, handler MessageHandler) error {
+	return rh.registerHandler(tcpNetRegisterOneWay, rsPackId, rsPackId, 0, handler)
 }
 
 func (rh *TcpNetHandler) GetTcpNetDataHandler(rsPackId uint32) (*TcpNetDataHandler, bool) {
-	rh.packetHandlerMapMux.Lock()
-	defer rh.packetHandlerMapMux.Unlock()
+	if rh == nil {
+		return nil, false
+	}
+	rh.packetHandlerMapMux.RLock()
+	defer rh.packetHandlerMapMux.RUnlock()
 	handler, exists := rh.packetHandlerMap[rsPackId]
 	return handler, exists
 }
 
-// HandleFuncType 是 gnet typed 模式下的请求/响应处理函数。
-type HandleFuncType func(*GNetConn, uint64, proto.Message, proto.Message)
+func dispatchTcpNetHandler(router *TcpNetHandler, ctx *HandlerContext) {
+	if router == nil || ctx == nil || ctx.Packet == nil {
+		slog.Error("tcp net handler unavailable")
+		return
+	}
+	dp := ctx.Packet
+	netHandler, ok := router.GetTcpNetDataHandler(dp.Head.PackId)
+	if !ok {
+		slog.Warn("tcp net handler not registered", zap.Uint32("pack_id", dp.Head.PackId), zap.Uint64("route_id", dp.Head.RouteId))
+		return
+	}
+	ctx.responsePackID = netHandler.rsId
+	if err := netHandler.HandleMessage(ctx, dp.Data); err != nil {
+		slog.Error("tcp net handle message failed", zap.Uint32("pack_id", dp.Head.PackId), zap.Uint64("route_id", dp.Head.RouteId), zap.Error(err))
+		return
+	}
+	if netHandler.registerType != tcpNetRegisterAuto || ctx.skipAutoResp {
+		return
+	}
+	if err := ctx.SendResponse(ctx.responseData); err != nil {
+		slog.Error("tcp net send auto response failed", zap.Uint32("pack_id", dp.Head.PackId), zap.Uint32("response_pack_id", netHandler.rsId), zap.Uint64("route_id", dp.Head.RouteId), zap.Error(err))
+	}
+}
 
 // GNetDispatchMode 定义 gnet 包处理在协程池或事件循环内执行。
 type GNetDispatchMode uint8
@@ -98,45 +202,3 @@ const (
 	GNetDispatchPool GNetDispatchMode = iota
 	GNetDispatchInline
 )
-
-// HandlerFuncST 保存一个请求包 ID 到响应包 ID 的 proto 处理注册信息。
-type HandlerFuncST struct {
-	RQ         proto.Message  // 请求 proto 模板。
-	RQPackId   uint32         // 请求包 ID。
-	RS         proto.Message  // 响应 proto 模板。
-	RSPackId   uint32         // 响应包 ID。
-	HandleFunc HandleFuncType // 业务处理函数。
-	RQType     reflect.Type   // 请求 proto 元素类型。
-	RSType     reflect.Type   // 响应 proto 元素类型。
-}
-
-// pendingGNetRequest 保存等待响应的原始请求消息及创建时间。
-type pendingGNetRequest struct {
-	rq        proto.Message // 等待响应的请求消息副本。
-	createdAt time.Time     // pending 创建时间。
-}
-
-// newProtoType 校验 proto 模板并返回其元素类型，用于后续反射创建消息。
-func newProtoType(template proto.Message) (reflect.Type, error) {
-	if template == nil {
-		return nil, su_errors.New(su_errors.CodeInvalidArgument, "nil proto template")
-	}
-	t := reflect.TypeOf(template)
-	if t.Kind() != reflect.Ptr {
-		return nil, su_errors.New(su_errors.CodeInvalidArgument, fmt.Sprintf("proto template must be pointer, got %s", t.Kind()))
-	}
-	elem := t.Elem()
-	if _, ok := reflect.New(elem).Interface().(proto.Message); !ok {
-		return nil, su_errors.New(su_errors.CodeInvalidArgument, fmt.Sprintf("%s does not implement proto.Message", t.String()))
-	}
-	return elem, nil
-}
-
-// newProtoFromType 根据注册的 proto 元素类型创建新消息实例。
-func newProtoFromType(t reflect.Type) proto.Message {
-	if t == nil {
-		return nil
-	}
-	msg, _ := reflect.New(t).Interface().(proto.Message)
-	return msg
-}

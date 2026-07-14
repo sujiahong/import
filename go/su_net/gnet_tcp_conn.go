@@ -13,9 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// GNetRawHandler 处理 gnet 原始 DataProtocol 数据包。
-type GNetRawHandler func(*GNetConn, *DataProtocol)
-
 // GNetConn 封装 gnet.Conn，并维护收包缓存、地址信息和心跳状态。
 type GNetConn struct {
 	Gconn        gnet.Conn // 底层 gnet 连接。
@@ -42,31 +39,28 @@ func NewGnetConn(c gnet.Conn) *GNetConn {
 	return gnc
 }
 
-// Send 通过 gnet 异步写接口发送已编码数据。
-func (gnc *GNetConn) Send(a_data []byte) error {
+// Send 编码 DataProtocol 后通过 gnet 异步写接口发送。
+func (gnc *GNetConn) Send(dp *DataProtocol) error {
+	bs, err := Encode(dp)
+	if err != nil {
+		return err
+	}
+	return gnc.SendBytes(bs)
+}
+
+// SendBytes 通过 gnet 异步写接口发送已编码数据。
+func (gnc *GNetConn) SendBytes(aData []byte) error {
 	if gnc == nil || gnc.Gconn == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "gnet conn is nil")
 	}
 	if atomic.LoadInt32(&gnc.closed) == 1 {
 		return su_errors.New(su_errors.CodeUnavailable, "gnet conn is closed")
 	}
-	if err := gnc.Gconn.AsyncWrite(a_data, nil); err != nil {
+	if err := gnc.Gconn.AsyncWrite(aData, nil); err != nil {
 		slog.Error("gnet async write failed", zap.Error(err))
 		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "gnet async write failed", err)
 	}
 	return nil
-}
-
-// SendPacket 编码 DataProtocol 后发送。
-func (gnc *GNetConn) SendPacket(dp *DataProtocol) error {
-	if dp == nil {
-		return su_errors.New(su_errors.CodeInvalidArgument, "nil data protocol")
-	}
-	bs, err := Encode(dp)
-	if err != nil {
-		return err
-	}
-	return gnc.Send(bs)
 }
 
 // Recv 处理 gnet 读到的帧数据，支持粘包/半包解析。
@@ -110,14 +104,9 @@ func (gnc *GNetConn) Ping() error {
 		slog.Error("Ping 封包失败", zap.Error(err))
 		return err
 	}
-	rq_bytes, err := Encode(&rq_dp)
-	if err != nil {
-		slog.Error("rq_dp 封包失败", zap.Error(err))
-		return err
-	}
 	gnc.PingPongMap.Store(ping.SendTime, 1)
 	atomic.AddInt32(&gnc.pendingPings, 1)
-	if err := gnc.Send(rq_bytes); err != nil {
+	if err := gnc.Send(&rq_dp); err != nil {
 		if _, ok := gnc.PingPongMap.LoadAndDelete(ping.SendTime); ok {
 			atomic.AddInt32(&gnc.pendingPings, -1)
 		}

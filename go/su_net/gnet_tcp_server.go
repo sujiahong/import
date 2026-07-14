@@ -2,13 +2,13 @@ package su_net
 
 import (
 	"context"
+	"go.local/su_errors"
 	slog "go.local/su_log"
 	"go.local/su_util"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/panjf2000/gnet/v2"
 	"go.uber.org/zap"
 )
@@ -23,9 +23,8 @@ type GTcpServer struct {
 	dispatchMode            GNetDispatchMode // 包处理分发模式。
 	closeOnce               sync.Once        // 保证 Close 只执行一次。
 	connMap                 sync.Map         // 远端地址到 GNetConn 的映射。
-	regHandlerMap           sync.Map         // 请求包 ID 到 HandlerFuncST 的映射。
-	rawHandler              GNetRawHandler   // raw 模式处理函数。
 	closeTimeout            time.Duration    // gnet Stop 和 worker 池排空超时。
+	dataHandler             *TcpNetHandler   // 业务数据包处理函数。
 }
 
 // OnBoot 是 gnet 服务启动完成回调。
@@ -65,9 +64,9 @@ func (ts *GTcpServer) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 func pingHandler(gnc *GNetConn, rq_dp *DataProtocol) {
 	var rs_dp DataProtocol
 	micro_time := uint64(time.Now().UnixNano() / 1000)
-	rs_dp.Head.PackId = 1001
+	rs_dp.Head.PackId = PONG
 	rs_dp.Head.HeadUuid = micro_time
-	rs_dp.Head.RouteId = micro_time
+	rs_dp.Head.RouteId = rq_dp.Head.RouteId
 	ping, err := PingDecode(rq_dp.Data, rq_dp.Head.PackLen)
 	if err != nil {
 		slog.Error("Ping 解包失败", zap.Error(err))
@@ -81,12 +80,7 @@ func pingHandler(gnc *GNetConn, rq_dp *DataProtocol) {
 		slog.Error("Pong 封包失败", zap.Error(err))
 		return
 	}
-	rs_bytes, err := Encode(&rs_dp)
-	if err != nil {
-		slog.Error("rs_dp 封包失败", zap.Error(err))
-		return
-	}
-	if err := gnc.Send(rs_bytes); err != nil {
+	if err := gnc.Send(&rs_dp); err != nil {
 		slog.Error("send pong failed", zap.Error(err))
 	}
 	return
@@ -128,54 +122,17 @@ func (ts *GTcpServer) dispatch(gconn *GNetConn, dp *DataProtocol) {
 	}
 }
 
-// handleServerPacket 处理服务端收到的 PING、raw 包或已注册请求包。
+// handleServerPacket 处理服务端收到的 PING 或已注册请求包。
 func (ts *GTcpServer) handleServerPacket(gconn *GNetConn, dp *DataProtocol) {
 	if dp.Head.PackId == PING {
 		pingHandler(gconn, dp)
 		return
 	}
-	if ts.rawHandler != nil {
-		ts.rawHandler(gconn, dp)
+	if ts == nil || ts.dataHandler == nil {
+		slog.Error("gnet server handler unavailable")
 		return
 	}
-	v, ok := ts.regHandlerMap.Load(dp.Head.PackId)
-	if !ok {
-		var count uint8
-		ts.regHandlerMap.Range(func(k, v interface{}) bool {
-			count++
-			return true
-		})
-		slog.Error("未识别的包ID", zap.String("remote addr", gconn.RemoteAddr),
-			zap.Uint32("packid", dp.Head.PackId), zap.Uint8("count", count))
-		return
-	}
-	handleST := v.(*HandlerFuncST)
-	var rsDP DataProtocol
-	microTime := uint64(time.Now().UnixNano() / 1000)
-	rsDP.Head.PackId = handleST.RSPackId
-	rsDP.Head.HeadUuid = microTime
-	rsDP.Head.RouteId = dp.Head.RouteId
-	rq := newProtoFromType(handleST.RQType)
-	rs := newProtoFromType(handleST.RSType)
-	if err := proto.Unmarshal(dp.Data, rq); err != nil {
-		slog.Error("proto.Unmarshal 失败", zap.Error(err))
-		return
-	}
-	handleST.HandleFunc(gconn, dp.Head.RouteId, rq, rs)
-	bs, err := proto.Marshal(rs)
-	if err != nil {
-		slog.Error("proto.Marshal 失败", zap.Error(err))
-		return
-	}
-	rsDP.Data = bs
-	rsBytes, err := Encode(&rsDP)
-	if err != nil {
-		slog.Error("rs_dp 封包失败", zap.Error(err))
-		return
-	}
-	if err := gconn.Send(rsBytes); err != nil {
-		slog.Error("server send response failed", zap.Error(err))
-	}
+	dispatchTcpNetHandler(ts.dataHandler, &HandlerContext{Conn: gconn, Packet: dp})
 }
 
 // Close 停止 gnet server 并等待 worker 池排空。
@@ -221,20 +178,25 @@ func (ts *GTcpServer) ConnCount() int {
 	return count
 }
 
-// RegisterHandler 注册请求/响应包 ID、proto 模板和处理函数。
-func (ts *GTcpServer) RegisterHandler(a_rq_id uint32, a_rq proto.Message, a_rs_id uint32, a_rs proto.Message, a_hndle HandleFuncType) {
-	rqType, err := newProtoType(a_rq)
-	if err != nil {
-		slog.Error("new rq proto factory failed", zap.Error(err))
-		return
+func (ts *GTcpServer) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if ts == nil || ts.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet server or dataHandler is nil")
 	}
-	rsType, err := newProtoType(a_rs)
-	if err != nil {
-		slog.Error("new rs proto factory failed", zap.Error(err))
-		return
+	return ts.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (ts *GTcpServer) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if ts == nil || ts.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet server or dataHandler is nil")
 	}
-	st := &HandlerFuncST{RQ: a_rq, RQPackId: a_rq_id, RS: a_rs, RSPackId: a_rs_id, HandleFunc: a_hndle, RQType: rqType, RSType: rsType}
-	ts.regHandlerMap.Store(a_rq_id, st)
+	return ts.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (ts *GTcpServer) RegisterOneWayHandler(packId uint32, handler MessageHandler) error {
+	if ts == nil || ts.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet server or dataHandler is nil")
+	}
+	return ts.dataHandler.RegisterOneWayHandler(packId, handler)
 }
 
 // Run 阻塞运行 gnet TCP server。
@@ -249,7 +211,7 @@ func (ts *GTcpServer) Run() {
 
 // CreateGNetServer 创建 gnet TCP server，但不立即运行。
 func CreateGNetServer(a_addr string) *GTcpServer {
-	ts := &GTcpServer{dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT}
+	ts := &GTcpServer{dispatchMode: GNetDispatchPool, Addr: a_addr, protoAddr: "tcp://:" + a_addr, Stat: 1, closeTimeout: DEFAULT_CLOSE_TIMEOUT, dataHandler: newTcpNetHandler()}
 	ts.pool = su_util.NewGoPool(DEFAULT_POOL_WORKERS, DEFAULT_POOL_QUEUE_SIZE)
 	return ts
 }
@@ -257,21 +219,6 @@ func CreateGNetServer(a_addr string) *GTcpServer {
 // CreateServer 是 CreateGNetServer 的兼容别名。
 func CreateServer(a_addr string) *GTcpServer {
 	return CreateGNetServer(a_addr)
-}
-
-// CreateGNetRawServer 创建 raw 模式 gnet TCP server。
-func CreateGNetRawServer(a_addr string, handler GNetRawHandler) *GTcpServer {
-	ts := CreateGNetServer(a_addr)
-	ts.rawHandler = handler
-	return ts
-}
-
-// SetRawHandler 设置 raw 数据包处理函数。
-func (ts *GTcpServer) SetRawHandler(handler GNetRawHandler) {
-	if ts == nil {
-		return
-	}
-	ts.rawHandler = handler
 }
 
 // SetDispatchMode 设置 gnet 服务端包处理模式。

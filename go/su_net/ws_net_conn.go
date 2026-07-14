@@ -12,8 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// WSHandler 处理 WebSocket 连接上解析出的业务数据包。
-type WSHandler func(*WSConn, *DataProtocol)
+// wsHandler 处理 WebSocket 连接上解析出的业务数据包。
+type wsHandler func(*WSConn, *DataProtocol)
 
 // WSConn 封装 gorilla/websocket.Conn，并维护收包缓存、写锁和心跳状态。
 type WSConn struct {
@@ -166,7 +166,7 @@ func (wc *WSConn) CheckPong() {
 }
 
 // readLoop 持续读取 WebSocket 二进制消息并交给 recv 解析。
-func (wc *WSConn) readLoop(handler WSHandler) {
+func (wc *WSConn) readLoop(handler wsHandler) {
 	defer wc.Close()
 	for {
 		messageType, data, err := wc.conn.ReadMessage()
@@ -187,7 +187,7 @@ func (wc *WSConn) readLoop(handler WSHandler) {
 }
 
 // recv 处理 WebSocket 消息中的粘包/半包，并将完整业务包交给 handler。
-func (wc *WSConn) recv(frame []byte, handler WSHandler) error {
+func (wc *WSConn) recv(frame []byte, handler wsHandler) error {
 	wc.recvData = append(wc.recvData, frame...)
 	for {
 		if len(wc.recvData) < int(HeadLength) {

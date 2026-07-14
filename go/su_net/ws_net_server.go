@@ -22,7 +22,6 @@ type WSServer struct {
 	Path         string             // WebSocket HTTP path。
 	server       *http.Server       // HTTP server。
 	listener     net.Listener       // TCP listener。
-	handler      WSHandler          // 业务包处理函数。
 	conns        map[uint64]*WSConn // 连接 ID 到连接的映射。
 	connsMu      sync.Mutex         // 保护 conns。
 	nextConnID   uint64             // 递增连接 ID。
@@ -30,15 +29,16 @@ type WSServer struct {
 	closeOnce    sync.Once          // 保证 Close 只执行一次。
 	upgrader     websocket.Upgrader // HTTP 到 WebSocket 的升级器。
 	writeTimeout int64              // 写超时，存储为 time.Duration 的 int64。
+	dataHandler  *TcpNetHandler     // 业务数据包处理函数。
 }
 
 // CreateWSServer 使用默认配置创建并启动 WebSocket server。
-func CreateWSServer(addr string, handlers ...WSHandler) (*WSServer, error) {
-	return CreateWSServerWithConfig(addr, DefaultWSNetConfig(), handlers...)
+func CreateWSServer(addr string) (*WSServer, error) {
+	return CreateWSServerWithConfig(addr, DefaultWSNetConfig())
 }
 
 // CreateWSServerWithConfig 使用指定配置创建并启动 WebSocket server。
-func CreateWSServerWithConfig(addr string, cfg WSNetConfig, handlers ...WSHandler) (*WSServer, error) {
+func CreateWSServerWithConfig(addr string, cfg WSNetConfig) (*WSServer, error) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "listen websocket failed", err)
@@ -53,9 +53,7 @@ func CreateWSServerWithConfig(addr string, cfg WSNetConfig, handlers ...WSHandle
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		writeTimeout: int64(cfg.WriteTimeout),
-	}
-	if len(handlers) > 0 {
-		ws.handler = handlers[0]
+		dataHandler:  newTcpNetHandler(),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(ws.Path, ws.handleHTTP)
@@ -90,13 +88,10 @@ func (ws *WSServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			ws.connsMu.Unlock()
 		}()
 		wsConn.readLoop(func(conn *WSConn, dp *DataProtocol) {
-			if ws.handler == nil {
-				return
-			}
 			taskDP := *dp
 			taskDP.Data = append([]byte(nil), dp.Data...)
 			if !ws.pool.SendTask(taskDP.Head.RouteId, func() {
-				ws.handler(conn, &taskDP)
+				ws.HandleMessage(conn, &taskDP)
 			}) {
 				slog.Warn("websocket server task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))
 			}
@@ -171,4 +166,33 @@ func (ws *WSServer) WriteTimeout() time.Duration {
 		return 0
 	}
 	return time.Duration(atomic.LoadInt64(&ws.writeTimeout))
+}
+
+func (ws *WSServer) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if ws == nil || ws.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "ws or ws.dataHandler is nil")
+	}
+	return ws.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (ws *WSServer) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if ws == nil || ws.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "ws or ws.dataHandler is nil")
+	}
+	return ws.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (ws *WSServer) RegisterOneWayHandler(packId uint32, handler MessageHandler) error {
+	if ws == nil || ws.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "ws or ws.dataHandler is nil")
+	}
+	return ws.dataHandler.RegisterOneWayHandler(packId, handler)
+}
+
+func (ws *WSServer) HandleMessage(conn *WSConn, dp *DataProtocol) {
+	if ws == nil || ws.dataHandler == nil || dp == nil {
+		slog.Error("websocket server handler unavailable")
+		return
+	}
+	dispatchTcpNetHandler(ws.dataHandler, &HandlerContext{Conn: conn, Packet: dp})
 }

@@ -13,18 +13,17 @@ import (
 
 // TcpClient 管理一个 TCP 客户端连接、心跳检查和可选自动重连。
 type TcpClient struct {
-	Addr              string        // 远端 TCP 地址。
-	Conn              *TcpConn      // 当前活跃 TCP 连接。
-	// handler           TcpHandler    // 业务包处理函数。
-	done              chan struct{} // 心跳 goroutine 停止信号。
-	stopOnce          sync.Once     // 保证心跳停止信号只关闭一次。
-	connMu            sync.RWMutex  // 保护 Conn 替换和读取。
-	closed            int32         // client 是否已关闭，按 atomic 访问。
-	reconnectEnabled  int32         // 是否启用自动重连，按 atomic 访问。
-	reconnecting      int32         // 是否正在重连，按 atomic 访问。
-	reconnectInterval time.Duration // 自动重连间隔。
-	writeTimeout      int64         // 写超时，存储为 time.Duration 的 int64。
-	dataHandler 	  TcpNetHandler   // 业务数据包处理函数。
+	Addr              string         // 远端 TCP 地址。
+	Conn              *TcpConn       // 当前活跃 TCP 连接。
+	done              chan struct{}  // 心跳 goroutine 停止信号。
+	stopOnce          sync.Once      // 保证心跳停止信号只关闭一次。
+	connMu            sync.RWMutex   // 保护 Conn 替换和读取。
+	closed            int32          // client 是否已关闭，按 atomic 访问。
+	reconnectEnabled  int32          // 是否启用自动重连，按 atomic 访问。
+	reconnecting      int32          // 是否正在重连，按 atomic 访问。
+	reconnectInterval time.Duration  // 自动重连间隔。
+	writeTimeout      int64          // 写超时，存储为 time.Duration 的 int64。
+	dataHandler       *TcpNetHandler // 业务数据包处理函数。
 }
 
 // CreateTcpClient 使用默认配置连接 TCP 服务端。
@@ -49,9 +48,7 @@ func CreateTcpClientWithConfig(addr string, cfg TcpNetConfig) (*TcpClient, error
 		reconnectInterval: time.Duration(RECONNECT_INTERVAL) * time.Second,
 		writeTimeout:      int64(cfg.WriteTimeout),
 	}
-	// if len(handlers) > 0 {
-	// 	client.handler = handlers[0]
-	// }
+	client.dataHandler = newTcpNetHandler()
 	client.startReadLoop(client.Conn)
 	go client.heartbeatLoop()
 	return client, nil
@@ -260,24 +257,30 @@ func (tc *TcpClient) Close() error {
 }
 
 func (tc *TcpClient) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
-	tc.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
-	return nil
+	if tc == nil || tc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "tc or tc.dataHandler is nil")
+	}
+	return tc.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
 }
 
 func (tc *TcpClient) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
-	tc.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
-	return nil
+	if tc == nil || tc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "tc or tc.dataHandler is nil")
+	}
+	return tc.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
 }
 
-func (tc *TcpClient) RegisterOneWayHandler(rqPackId uint32, handler MessageHandler) error {
-	tc.dataHandler.RegisterOneWayHandler(rqPackId, handler)
-	return nil
+func (tc *TcpClient) RegisterOneWayHandler(packId uint32, handler MessageHandler) error {
+	if tc == nil || tc.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "tc or tc.dataHandler is nil")
+	}
+	return tc.dataHandler.RegisterOneWayHandler(packId, handler)
 }
 
 func (tc *TcpClient) HandleMessage(conn *TcpConn, dp *DataProtocol) {
-	handler, ok := tc.dataHandler.GetTcpNetDataHandler(dp.Head.PackId)
-	if !ok {
+	if tc == nil || tc.dataHandler == nil || dp == nil {
+		slog.Error("tcp client handler unavailable")
 		return
 	}
-	handler.HandleMessage(&HandlerContext{Conn: conn, Packet: dp}, dp.Data, nil)
+	dispatchTcpNetHandler(tc.dataHandler, &HandlerContext{Conn: conn, Packet: dp})
 }

@@ -1,8 +1,6 @@
 package su_net
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -58,25 +56,27 @@ func waitForCondition(t *testing.T, name string, timeout time.Duration, ok func(
 	t.Fatalf("timeout waiting for %s", name)
 }
 
-func gnetPendingCount(client *GTcpClient) int {
-	count := 0
-	client.pendingRQMap.Range(func(k, v interface{}) bool {
-		count++
-		return true
-	})
-	return count
-}
-
 func TestGNetTcpSimpleClientServer(t *testing.T) {
 	port := freeTCPPort(t)
 	server := CreateServer(port)
-	server.RegisterHandler(10000, &testpb.TestRQ{}, 10001, &testpb.TestRS{}, func(gnc *GNetConn, shardingID uint64, rqMsg proto.Message, rsMsg proto.Message) {
-		rq := rqMsg.(*testpb.TestRQ)
-		rs := rsMsg.(*testpb.TestRS)
-		rs.Test1 = proto.Uint32(rq.GetTest1() + 1)
-		rs.Test2 = proto.String(fmt.Sprintf("echo:%s", rq.GetTest2()))
-		rs.Test3S = []uint64{shardingID}
-	})
+	if err := server.RegisterRequestResponseHandler(10000, 10001, func(ctx *HandlerContext, req []byte) error {
+		rq := &testpb.TestRQ{}
+		if err := proto.Unmarshal(req, rq); err != nil {
+			return err
+		}
+		rsBytes, err := proto.Marshal(&testpb.TestRS{
+			Test1:  proto.Uint32(rq.GetTest1() + 1),
+			Test2:  proto.String(fmt.Sprintf("echo:%s", rq.GetTest2())),
+			Test3S: []uint64{ctx.Packet.Head.RouteId},
+		})
+		if err != nil {
+			return err
+		}
+		ctx.SetResponse(rsBytes)
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
 	go server.Run()
 	defer server.Close()
 	waitForState(t, "server", &server.Stat, 2)
@@ -87,15 +87,32 @@ func TestGNetTcpSimpleClientServer(t *testing.T) {
 		t.Fatal("CreateClient() returned nil")
 	}
 	defer client.Stop()
-	client.RegisterHandler(10000, &testpb.TestRQ{}, 10001, &testpb.TestRS{}, func(gnc *GNetConn, shardingID uint64, rqMsg proto.Message, rsMsg proto.Message) {
-		got <- rsMsg.(*testpb.TestRS)
-	})
+	if err := client.RegisterOneWayHandler(10001, func(ctx *HandlerContext, req []byte) error {
+		rs := &testpb.TestRS{}
+		if err := proto.Unmarshal(req, rs); err != nil {
+			return err
+		}
+		got <- rs
+		return nil
+	}); err != nil {
+		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
+	}
 	waitForState(t, "client", &client.state, 2)
 
-	client.Send(10000, 10001, &testpb.TestRQ{
+	rqBytes, err := proto.Marshal(&testpb.TestRQ{
 		Test1: proto.Uint32(41),
 		Test2: proto.String("hello"),
 	})
+	if err != nil {
+		t.Fatalf("proto.Marshal() error = %v", err)
+	}
+	err = client.Send(&DataProtocol{
+		Head: Header{PackId: 10000, RouteId: nextRouteID(), HeadUuid: uint64(time.Now().UnixNano() / 1000)},
+		Data: rqBytes,
+	})
+	if err != nil {
+		t.Fatalf("client Send() error = %v", err)
+	}
 
 	select {
 	case rs := <-got:
@@ -113,42 +130,42 @@ func TestGNetTcpSimpleClientServer(t *testing.T) {
 	}
 }
 
-func TestGNetTcpRawClientServer(t *testing.T) {
+func TestGNetTcpBinaryPayloadClientServer(t *testing.T) {
 	port := freeTCPPort(t)
-	server := CreateGNetRawServer(port, func(gnc *GNetConn, dp *DataProtocol) {
-		err := gnc.SendPacket(&DataProtocol{
-			Head: Header{
-				PackId:   dp.Head.PackId + 1,
-				RouteId:  dp.Head.RouteId,
-				HeadUuid: dp.Head.HeadUuid,
-			},
-			Data: append([]byte(nil), dp.Data...),
-		})
-		if err != nil {
-			t.Errorf("server SendPacket() error = %v", err)
-		}
-	})
+	server := CreateServer(port)
+	if err := server.RegisterRequestResponseHandler(20000, 20001, func(ctx *HandlerContext, req []byte) error {
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
 	server.SetDispatchMode(GNetDispatchInline)
 	go server.Run()
 	defer server.Close()
 	waitForState(t, "server", &server.Stat, 2)
 
 	got := make(chan DataProtocol, 1)
-	client := CreateGNetRawClient("127.0.0.1:"+port, 1, func(gnc *GNetConn, dp *DataProtocol) {
-		got <- *dp
-	})
+	client := CreateClient("127.0.0.1:"+port, 1)
 	if client == nil {
-		t.Fatal("CreateGNetRawClient() returned nil")
+		t.Fatal("CreateClient() returned nil")
 	}
 	defer client.Stop()
+	if err := client.RegisterOneWayHandler(20001, func(ctx *HandlerContext, req []byte) error {
+		dp := *ctx.Packet
+		dp.Data = append([]byte(nil), req...)
+		got <- dp
+		return nil
+	}); err != nil {
+		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
+	}
 	waitForState(t, "client", &client.state, 2)
 
-	err := client.SendPacket(&DataProtocol{
+	err := client.Send(&DataProtocol{
 		Head: Header{PackId: 20000, RouteId: 1, HeadUuid: 2},
-		Data: []byte("raw"),
+		Data: []byte("binary"),
 	})
 	if err != nil {
-		t.Fatalf("client SendPacket() error = %v", err)
+		t.Fatalf("client Send() error = %v", err)
 	}
 
 	select {
@@ -156,82 +173,35 @@ func TestGNetTcpRawClientServer(t *testing.T) {
 		if dp.Head.PackId != 20001 || dp.Head.RouteId != 1 || dp.Head.HeadUuid != 2 {
 			t.Fatalf("response head = %+v", dp.Head)
 		}
-		if string(dp.Data) != "raw" {
-			t.Fatalf("response data = %q, want raw", dp.Data)
+		if string(dp.Data) != "binary" {
+			t.Fatalf("response data = %q, want binary", dp.Data)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timeout waiting for raw gnet response")
+		t.Fatal("timeout waiting for gnet response")
 	}
 }
 
-func TestGNetClientSendErrorRejectsUnregisteredResponse(t *testing.T) {
-	client := &GTcpClient{}
-	err := client.SendError(10000, 10001, &testpb.TestRQ{})
+func TestGNetClientSendReturnsNoActiveConnection(t *testing.T) {
+	client := &GTcpClient{dataHandler: newTcpNetHandler()}
+	err := client.Send(&DataProtocol{Head: Header{PackId: 10000}, Data: []byte("payload")})
 	if err == nil {
-		t.Fatal("SendError() error = nil, want unregistered response error")
+		t.Fatal("Send() error = nil, want no active connection error")
 	}
 }
 
-func TestGNetClientSendFailureClearsPendingRequest(t *testing.T) {
-	client := &GTcpClient{}
-	client.RegisterHandler(10000, &testpb.TestRQ{}, 10001, &testpb.TestRS{}, func(gnc *GNetConn, shardingID uint64, rqMsg proto.Message, rsMsg proto.Message) {})
-
-	err := client.SendError(10000, 10001, &testpb.TestRQ{})
-	if err == nil {
-		t.Fatal("SendError() error = nil, want no active connection error")
-	}
-	if got := gnetPendingCount(client); got != 0 {
-		t.Fatalf("pending count = %d, want 0 after send failure", got)
-	}
-}
-
-func TestGNetClientCleanupExpiredPendingRequests(t *testing.T) {
-	client := &GTcpClient{requestTimeout: time.Millisecond, pendingEnabled: 1}
-	client.pendingRQMap.Store(uint64(1), &pendingGNetRequest{
-		rq:        &testpb.TestRQ{},
-		createdAt: time.Now().Add(-time.Second),
-	})
-	client.pendingRQMap.Store(uint64(2), &pendingGNetRequest{
-		rq:        &testpb.TestRQ{},
-		createdAt: time.Now(),
-	})
-
-	client.cleanupExpiredPendingRequests()
-
-	if _, ok := client.pendingRQMap.Load(uint64(1)); ok {
-		t.Fatal("expired pending request was not removed")
-	}
-	if _, ok := client.pendingRQMap.Load(uint64(2)); !ok {
-		t.Fatal("fresh pending request was removed")
-	}
-}
-
-func TestGNetClientDisablePendingClearsRequests(t *testing.T) {
-	client := &GTcpClient{pendingEnabled: 1}
-	client.pendingRQMap.Store(uint64(1), &pendingGNetRequest{
-		rq:        &testpb.TestRQ{},
-		createdAt: time.Now(),
-	})
-
-	client.SetPendingRequestsEnabled(false)
-
-	if client.pendingRequestsEnabled() {
-		t.Fatal("pendingRequestsEnabled() = true, want false")
-	}
-	if got := gnetPendingCount(client); got != 0 {
-		t.Fatalf("pending count = %d, want 0", got)
-	}
-}
-
-func TestGNetClientHandlePacketUsesFreshRequestWhenPendingDisabled(t *testing.T) {
-	client := &GTcpClient{pendingEnabled: 0}
-	template := &testpb.TestRQ{}
+func TestGNetClientHandlePacketDispatchesRegisteredHandler(t *testing.T) {
+	client := &GTcpClient{dataHandler: newTcpNetHandler()}
 	var seen []uint32
-	client.RegisterHandler(10000, template, 10001, &testpb.TestRS{}, func(gnc *GNetConn, shardingID uint64, rqMsg proto.Message, rsMsg proto.Message) {
-		rq := rqMsg.(*testpb.TestRQ)
-		seen = append(seen, rq.GetTest1())
-		rq.Test1 = proto.Uint32(99)
-	})
+	if err := client.RegisterOneWayHandler(10001, func(ctx *HandlerContext, req []byte) error {
+		rs := &testpb.TestRS{}
+		if err := proto.Unmarshal(req, rs); err != nil {
+			return err
+		}
+		seen = append(seen, rs.GetTest1())
+		return nil
+	}); err != nil {
+		t.Fatalf("RegisterOneWayHandler() error = %v", err)
+	}
 	rsBytes, err := proto.Marshal(&testpb.TestRS{Test1: proto.Uint32(1)})
 	if err != nil {
 		t.Fatalf("proto.Marshal() error = %v", err)
@@ -249,11 +219,8 @@ func TestGNetClientHandlePacketUsesFreshRequestWhenPendingDisabled(t *testing.T)
 	if len(seen) != 2 {
 		t.Fatalf("handler calls = %d, want 2", len(seen))
 	}
-	if seen[0] != 0 || seen[1] != 0 {
-		t.Fatalf("request values = %v, want fresh zero-value requests", seen)
-	}
-	if template.GetTest1() != 0 {
-		t.Fatalf("template request was mutated: %d", template.GetTest1())
+	if seen[0] != 1 || seen[1] != 1 {
+		t.Fatalf("response values = %v, want [1 1]", seen)
 	}
 }
 
@@ -287,7 +254,7 @@ func TestGNetConnCheckPongAfterCloseDoesNotPing(t *testing.T) {
 	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
 		t.Fatalf("pendingPings = %d, want 0", got)
 	}
-	if err := conn.Send([]byte("x")); err == nil {
+	if err := conn.Send(&DataProtocol{Head: Header{PackId: 1}}); err == nil {
 		t.Fatal("Send() error = nil, want closed error")
 	}
 }
@@ -303,21 +270,21 @@ func TestGNetConnMarkClosedPreventsPing(t *testing.T) {
 	if got := atomic.LoadInt32(&conn.pendingPings); got != 0 {
 		t.Fatalf("pendingPings = %d, want 0", got)
 	}
-	if err := conn.Send([]byte("x")); err == nil {
+	if err := conn.Send(&DataProtocol{Head: Header{PackId: 1}}); err == nil {
 		t.Fatal("Send() error = nil, want closed error")
 	}
 }
 
 func TestGNetConnCloseIsConcurrentSafe(t *testing.T) {
 	port := freeTCPPort(t)
-	server := CreateGNetRawServer(port, func(gnc *GNetConn, dp *DataProtocol) {})
+	server := CreateServer(port)
 	go server.Run()
 	defer server.Close()
 	waitForState(t, "server", &server.Stat, 2)
 
-	client := CreateGNetRawClient("127.0.0.1:"+port, 1, func(gnc *GNetConn, dp *DataProtocol) {})
+	client := CreateClient("127.0.0.1:"+port, 1)
 	if client == nil {
-		t.Fatal("CreateGNetRawClient() returned nil")
+		t.Fatal("CreateClient() returned nil")
 	}
 	defer client.Stop()
 	waitForState(t, "client", &client.state, 2)
@@ -346,48 +313,6 @@ func TestGNetConnCloseIsConcurrentSafe(t *testing.T) {
 	waitForCondition(t, "client conn closed", 3*time.Second, func() bool {
 		return client.ConnCount() == 0
 	})
-}
-
-func TestGNetClientRemoteCloseClearsPendingRequests(t *testing.T) {
-	port := freeTCPPort(t)
-	server := CreateServer(port)
-	go server.Run()
-	defer server.Close()
-	waitForState(t, "server", &server.Stat, 2)
-
-	client := CreateClient("127.0.0.1:"+port, 1)
-	if client == nil {
-		t.Fatal("CreateClient() returned nil")
-	}
-	defer client.Stop()
-	client.RegisterHandler(10000, &testpb.TestRQ{}, 10001, &testpb.TestRS{}, func(gnc *GNetConn, shardingID uint64, rqMsg proto.Message, rsMsg proto.Message) {})
-	waitForState(t, "client", &client.state, 2)
-	waitForCondition(t, "server connection", 3*time.Second, func() bool {
-		return server.ConnCount() == 1
-	})
-
-	if err := client.SendError(10000, 10001, &testpb.TestRQ{Test1: proto.Uint32(1)}); err != nil {
-		t.Fatalf("SendError() error = %v", err)
-	}
-	waitForCondition(t, "pending request", time.Second, func() bool {
-		return gnetPendingCount(client) == 1
-	})
-
-	serverConns := make([]*GNetConn, 0)
-	server.connMap.Range(func(k, v interface{}) bool {
-		serverConns = append(serverConns, v.(*GNetConn))
-		return true
-	})
-	for _, conn := range serverConns {
-		conn.Close()
-	}
-
-	waitForCondition(t, "client remote close", 3*time.Second, func() bool {
-		return client.ConnCount() == 0
-	})
-	if got := gnetPendingCount(client); got != 0 {
-		t.Fatalf("pending count = %d, want 0 after remote close", got)
-	}
 }
 
 func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
@@ -465,26 +390,6 @@ func TestGNetClientConnectFailureRestoresConnectedState(t *testing.T) {
 	}
 	if got := client.State(); got != 2 {
 		t.Fatalf("client state = %d, want 2 after dial failure", got)
-	}
-}
-
-func TestGNetClientWaitForConnectionReturnsWhenConnected(t *testing.T) {
-	client := &GTcpClient{state: 1, connList: []*GNetConn{{}}}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	if err := client.waitForConnection(ctx); err != nil {
-		t.Fatalf("waitForConnection() error = %v", err)
-	}
-}
-
-func TestGNetClientWaitForConnectionHonorsContext(t *testing.T) {
-	client := &GTcpClient{state: 1}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
-	defer cancel()
-
-	if err := client.waitForConnection(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("waitForConnection() error = %v, want deadline exceeded", err)
 	}
 }
 

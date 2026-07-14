@@ -10,31 +10,31 @@ import (
 func TestCreateTcpServerAndClient(t *testing.T) {
 	got := make(chan DataProtocol, 1)
 
-	server, err := CreateTcpServer("127.0.0.1:0", func(conn *TcpConn, dp *DataProtocol) {
-		rs := &DataProtocol{
-			Head: Header{
-				PackId:   dp.Head.PackId + 1,
-				RouteId:  dp.Head.RouteId,
-				HeadUuid: dp.Head.HeadUuid,
-			},
-			Data: append([]byte(nil), dp.Data...),
-		}
-		if err := conn.Send(rs); err != nil {
-			t.Errorf("server Send() error = %v", err)
-		}
-	})
+	server, err := CreateTcpServer("127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("CreateTcpServer() error = %v", err)
 	}
 	defer server.Close()
+	if err := server.RegisterRequestResponseHandler(10, 11, func(ctx *HandlerContext, req []byte) error {
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
 
-	client, err := CreateTcpClient(server.Addr, func(conn *TcpConn, dp *DataProtocol) {
-		got <- *dp
-	})
+	client, err := CreateTcpClient(server.Addr)
 	if err != nil {
 		t.Fatalf("CreateTcpClient() error = %v", err)
 	}
 	defer client.Close()
+	if err := client.RegisterOneWayHandler(11, func(ctx *HandlerContext, req []byte) error {
+		dp := *ctx.Packet
+		dp.Data = append([]byte(nil), req...)
+		got <- dp
+		return nil
+	}); err != nil {
+		t.Fatalf("RegisterOneWayHandler() error = %v", err)
+	}
 
 	err = client.Send(&DataProtocol{
 		Head: Header{
@@ -63,13 +63,22 @@ func TestCreateTcpServerAndClient(t *testing.T) {
 
 func TestTcpWriteTimeoutConfigAndUpdate(t *testing.T) {
 	gotServerTimeout := make(chan time.Duration, 1)
-	server, err := CreateTcpServerWithConfig("127.0.0.1:0", TcpNetConfig{WriteTimeout: 0}, func(conn *TcpConn, dp *DataProtocol) {
-		gotServerTimeout <- conn.WriteTimeout()
-	})
+	server, err := CreateTcpServerWithConfig("127.0.0.1:0", TcpNetConfig{WriteTimeout: 0})
 	if err != nil {
 		t.Fatalf("CreateTcpServerWithConfig() error = %v", err)
 	}
 	defer server.Close()
+	if err := server.RegisterOneWayHandler(10, func(ctx *HandlerContext, req []byte) error {
+		conn, ok := ctx.Conn.(*TcpConn)
+		if !ok {
+			gotServerTimeout <- -1
+			return nil
+		}
+		gotServerTimeout <- conn.WriteTimeout()
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterOneWayHandler() error = %v", err)
+	}
 	if server.WriteTimeout() != 0 {
 		t.Fatalf("server WriteTimeout() = %s, want 0", server.WriteTimeout())
 	}
@@ -192,24 +201,31 @@ func TestTcpClientHeartbeatStopsOnRemoteClose(t *testing.T) {
 
 func TestTcpClientReconnectRestoresSend(t *testing.T) {
 	got := make(chan DataProtocol, 1)
-	server, err := CreateTcpServer("127.0.0.1:0", func(conn *TcpConn, dp *DataProtocol) {
-		_ = conn.Send(&DataProtocol{
-			Head: Header{PackId: dp.Head.PackId + 1, RouteId: dp.Head.RouteId, HeadUuid: dp.Head.HeadUuid},
-			Data: append([]byte(nil), dp.Data...),
-		})
-	})
+	server, err := CreateTcpServer("127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("CreateTcpServer() error = %v", err)
 	}
 	defer server.Close()
+	if err := server.RegisterRequestResponseHandler(30, 31, func(ctx *HandlerContext, req []byte) error {
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
 
-	client, err := CreateTcpClient(server.Addr, func(conn *TcpConn, dp *DataProtocol) {
-		got <- *dp
-	})
+	client, err := CreateTcpClient(server.Addr)
 	if err != nil {
 		t.Fatalf("CreateTcpClient() error = %v", err)
 	}
 	defer client.Close()
+	if err := client.RegisterOneWayHandler(31, func(ctx *HandlerContext, req []byte) error {
+		dp := *ctx.Packet
+		dp.Data = append([]byte(nil), req...)
+		got <- dp
+		return nil
+	}); err != nil {
+		t.Fatalf("RegisterOneWayHandler() error = %v", err)
+	}
 
 	if err := client.Reconnect(); err != nil {
 		t.Fatalf("Reconnect() error = %v", err)

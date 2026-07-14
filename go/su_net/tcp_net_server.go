@@ -17,21 +17,21 @@ import (
 type TcpServer struct {
 	Addr         string              // 实际监听地址。
 	listener     *net.TCPListener    // TCP listener。
-	handler      TcpHandler          // 业务包处理函数。
 	conns        map[string]*TcpConn // remote addr 到连接的映射。
 	connsMu      sync.Mutex          // 保护 conns。
 	closeOnce    sync.Once           // 保证 Close 只执行一次。
 	pool         *su_util.GoPool     // 业务包处理 worker 池。
 	writeTimeout int64               // 写超时，存储为 time.Duration 的 int64。
+	dataHandler  *TcpNetHandler      // 业务数据包处理函数。
 }
 
 // CreateTcpServer 使用默认配置创建并启动 TCP server。
-func CreateTcpServer(addr string, handlers ...TcpHandler) (*TcpServer, error) {
-	return CreateTcpServerWithConfig(addr, DefaultTcpNetConfig(), handlers...)
+func CreateTcpServer(addr string) (*TcpServer, error) {
+	return CreateTcpServerWithConfig(addr, DefaultTcpNetConfig())
 }
 
 // CreateTcpServerWithConfig 使用指定配置创建并启动 TCP server。
-func CreateTcpServerWithConfig(addr string, cfg TcpNetConfig, handlers ...TcpHandler) (*TcpServer, error) {
+func CreateTcpServerWithConfig(addr string, cfg TcpNetConfig) (*TcpServer, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, su_errors.Wrap(su_errors.CodeInvalidArgument, "resolve tcp addr failed", err)
@@ -46,9 +46,7 @@ func CreateTcpServerWithConfig(addr string, cfg TcpNetConfig, handlers ...TcpHan
 		conns:        make(map[string]*TcpConn),
 		pool:         su_util.NewGoPool(DEFAULT_POOL_WORKERS, DEFAULT_POOL_QUEUE_SIZE),
 		writeTimeout: int64(cfg.WriteTimeout),
-	}
-	if len(handlers) > 0 {
-		server.handler = handlers[0]
+		dataHandler:  newTcpNetHandler(),
 	}
 	go server.acceptLoop()
 	return server, nil
@@ -79,12 +77,10 @@ func (ts *TcpServer) acceptLoop() {
 				ts.connsMu.Unlock()
 			}()
 			tcpConn.readLoop(func(conn *TcpConn, dp *DataProtocol) {
-				if ts.handler == nil {
-					return
-				}
 				taskDP := *dp
+				taskDP.Data = append([]byte(nil), dp.Data...)
 				if !ts.pool.SendTask(taskDP.Head.RouteId, func() {
-					ts.handler(conn, &taskDP)
+					ts.HandleMessage(conn, &taskDP)
 				}) {
 					slog.Warn("tcp server task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))
 				}
@@ -150,4 +146,33 @@ func (ts *TcpServer) WriteTimeout() time.Duration {
 		return 0
 	}
 	return time.Duration(atomic.LoadInt64(&ts.writeTimeout))
+}
+
+func (ts *TcpServer) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if ts == nil || ts.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "ts or ts.dataHandler is nil")
+	}
+	return ts.dataHandler.RegisterManualResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (ts *TcpServer) RegisterRequestResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
+	if ts == nil || ts.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "ts or ts.dataHandler is nil")
+	}
+	return ts.dataHandler.RegisterRequestResponseHandler(rqPackId, rsPackId, handler)
+}
+
+func (ts *TcpServer) RegisterOneWayHandler(packId uint32, handler MessageHandler) error {
+	if ts == nil || ts.dataHandler == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "ts or ts.dataHandler is nil")
+	}
+	return ts.dataHandler.RegisterOneWayHandler(packId, handler)
+}
+
+func (ts *TcpServer) HandleMessage(conn *TcpConn, dp *DataProtocol) {
+	if ts == nil || ts.dataHandler == nil || dp == nil {
+		slog.Error("tcp server handler unavailable")
+		return
+	}
+	dispatchTcpNetHandler(ts.dataHandler, &HandlerContext{Conn: conn, Packet: dp})
 }
