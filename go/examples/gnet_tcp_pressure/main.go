@@ -104,9 +104,9 @@ func main() {
 		if i < extraConns {
 			connNum++
 		}
-		client := su_net.CreateClient(*addr, uint8(connNum))
-		if client == nil {
-			panic("create client failed")
+		client, err := su_net.CreateGNetClient(*addr, connNum)
+		if err != nil {
+			panic(err)
 		}
 		if err := client.RegisterOneWayHandler(10001, func(ctx *su_net.HandlerContext, req []byte) error {
 			rs := &testpb.TestRS{}

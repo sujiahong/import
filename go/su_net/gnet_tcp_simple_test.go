@@ -82,9 +82,9 @@ func TestGNetTcpSimpleClientServer(t *testing.T) {
 	waitForState(t, "server", &server.Stat, 2)
 
 	got := make(chan *testpb.TestRS, 1)
-	client := CreateClient("127.0.0.1:"+port, 1)
-	if client == nil {
-		t.Fatal("CreateClient() returned nil")
+	client, err := CreateGNetClient("127.0.0.1:"+port, 1)
+	if err != nil {
+		t.Fatalf("CreateGNetClient() error = %v", err)
 	}
 	defer client.Stop()
 	if err := client.RegisterOneWayHandler(10001, func(ctx *HandlerContext, req []byte) error {
@@ -130,6 +130,111 @@ func TestGNetTcpSimpleClientServer(t *testing.T) {
 	}
 }
 
+func TestGNetClientRejectsInvalidConnNum(t *testing.T) {
+	if client, err := CreateGNetClient("127.0.0.1:9999", 0); err == nil {
+		if client != nil {
+			client.Stop()
+		}
+		t.Fatal("CreateGNetClient() with zero conn num error = nil")
+	}
+}
+
+func TestGNetClientWithConfigAppliesOptions(t *testing.T) {
+	port := freeTCPPort(t)
+	server := CreateServer(port)
+	go server.Run()
+	defer server.Close()
+	waitForState(t, "server", &server.Stat, 2)
+
+	client, err := CreateGNetClientWithConfig("127.0.0.1:"+port, GNetTcpConfig{
+		DispatchMode:      GNetDispatchPool,
+		ReconnectInterval: 25 * time.Millisecond,
+	}, 1)
+	if err != nil {
+		t.Fatalf("CreateGNetClientWithConfig() error = %v", err)
+	}
+	defer client.Stop()
+	waitForState(t, "client", &client.state, 2)
+
+	if client.dispatchMode != GNetDispatchPool {
+		t.Fatalf("dispatchMode = %d, want %d", client.dispatchMode, GNetDispatchPool)
+	}
+	if client.reconnectInterval != 25*time.Millisecond {
+		t.Fatalf("reconnectInterval = %s, want 25ms", client.reconnectInterval)
+	}
+}
+
+func TestGNetClientConnectionPoolRoundRobin(t *testing.T) {
+	port := freeTCPPort(t)
+	server := CreateServer(port)
+	server.SetDispatchMode(GNetDispatchInline)
+	var mu sync.Mutex
+	seen := make(map[*GNetConn]int)
+	typeErr := make(chan any, 1)
+	if err := server.RegisterRequestResponseHandler(30000, 30001, func(ctx *HandlerContext, req []byte) error {
+		conn, ok := ctx.Conn.(*GNetConn)
+		if !ok {
+			select {
+			case typeErr <- ctx.Conn:
+			default:
+			}
+			ctx.SetResponse(append([]byte(nil), req...))
+			return nil
+		}
+		mu.Lock()
+		seen[conn]++
+		mu.Unlock()
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
+	go server.Run()
+	defer server.Close()
+	waitForState(t, "server", &server.Stat, 2)
+
+	client, err := CreateGNetClient("127.0.0.1:"+port, 3)
+	if err != nil {
+		t.Fatalf("CreateGNetClient() error = %v", err)
+	}
+	defer client.Stop()
+	waitForCondition(t, "client pool", 3*time.Second, func() bool {
+		return client.State() == 2 && client.ConnCount() == 3 && server.ConnCount() == 3
+	})
+
+	got := make(chan struct{}, 6)
+	if err := client.RegisterOneWayHandler(30001, func(ctx *HandlerContext, req []byte) error {
+		got <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
+	}
+	for i := 0; i < 6; i++ {
+		if err := client.Send(&DataProtocol{
+			Head: Header{PackId: 30000, RouteId: uint64(i + 1), HeadUuid: uint64(i + 1)},
+			Data: []byte("pool"),
+		}); err != nil {
+			t.Fatalf("client Send(%d) error = %v", i, err)
+		}
+	}
+	for i := 0; i < 6; i++ {
+		select {
+		case <-got:
+		case conn := <-typeErr:
+			t.Fatalf("ctx.Conn type = %T, want *GNetConn", conn)
+		case <-time.After(3 * time.Second):
+			t.Fatal("timeout waiting for gnet pool response")
+		}
+	}
+
+	mu.Lock()
+	seenCount := len(seen)
+	mu.Unlock()
+	if seenCount != 3 {
+		t.Fatalf("server saw %d gnet conns, want 3", seenCount)
+	}
+}
+
 func TestGNetTcpBinaryPayloadClientServer(t *testing.T) {
 	port := freeTCPPort(t)
 	server := CreateServer(port)
@@ -145,9 +250,9 @@ func TestGNetTcpBinaryPayloadClientServer(t *testing.T) {
 	waitForState(t, "server", &server.Stat, 2)
 
 	got := make(chan DataProtocol, 1)
-	client := CreateClient("127.0.0.1:"+port, 1)
-	if client == nil {
-		t.Fatal("CreateClient() returned nil")
+	client, err := CreateGNetClient("127.0.0.1:"+port, 1)
+	if err != nil {
+		t.Fatalf("CreateGNetClient() error = %v", err)
 	}
 	defer client.Stop()
 	if err := client.RegisterOneWayHandler(20001, func(ctx *HandlerContext, req []byte) error {
@@ -160,7 +265,7 @@ func TestGNetTcpBinaryPayloadClientServer(t *testing.T) {
 	}
 	waitForState(t, "client", &client.state, 2)
 
-	err := client.Send(&DataProtocol{
+	err = client.Send(&DataProtocol{
 		Head: Header{PackId: 20000, RouteId: 1, HeadUuid: 2},
 		Data: []byte("binary"),
 	})
@@ -282,9 +387,9 @@ func TestGNetConnCloseIsConcurrentSafe(t *testing.T) {
 	defer server.Close()
 	waitForState(t, "server", &server.Stat, 2)
 
-	client := CreateClient("127.0.0.1:"+port, 1)
-	if client == nil {
-		t.Fatal("CreateClient() returned nil")
+	client, err := CreateGNetClient("127.0.0.1:"+port, 1)
+	if err != nil {
+		t.Fatalf("CreateGNetClient() error = %v", err)
 	}
 	defer client.Stop()
 	waitForState(t, "client", &client.state, 2)
@@ -322,9 +427,9 @@ func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
 	defer server.Close()
 	waitForState(t, "server", &server.Stat, 2)
 
-	client := CreateClient("127.0.0.1:"+port, 1)
-	if client == nil {
-		t.Fatal("CreateClient() returned nil")
+	client, err := CreateGNetClient("127.0.0.1:"+port, 1)
+	if err != nil {
+		t.Fatalf("CreateGNetClient() error = %v", err)
 	}
 	waitForState(t, "client", &client.state, 2)
 
@@ -346,8 +451,8 @@ func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
 	waitForCondition(t, "client connections closed after Stop", time.Second, func() bool {
 		return client.ConnCount() == 0
 	})
-	if got := atomic.LoadInt32(&client.reconnectState); got != 0 {
-		t.Fatalf("reconnectState = %d, want 0 after Stop", got)
+	if got := atomic.LoadInt32(&client.reconnecting); got != 0 {
+		t.Fatalf("reconnecting = %d, want 0 after Stop", got)
 	}
 }
 
@@ -374,7 +479,7 @@ func TestGNetClientStopDrainsQueuedPoolTasks(t *testing.T) {
 
 func TestGNetClientConnectFailureRestoresConnectedState(t *testing.T) {
 	port := freeTCPPort(t)
-	client := &GTcpClient{remote_addr: "127.0.0.1:" + port, state: 2}
+	client := &GTcpClient{Addr: "127.0.0.1:" + port, state: 2}
 	gclient, err := gnet.NewClient(client)
 	if err != nil {
 		t.Fatalf("gnet.NewClient() error = %v", err)

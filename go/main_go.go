@@ -255,7 +255,7 @@ func main() {
 	// })
 	// gts.Run()
 
-	// gtc := su_net.CreateClient("127.0.0.1:9990",2)
+	// gtc := su_net.CreateGNetClient("127.0.0.1:9990",2)
 	// gtc.RegisterHandler(10000, &Test.TestRQ{}, 10001, &Test.TestRS{}, func(gnc *su_net.GNetConn,a_shardingid uint64, a_rq proto.Message, a_rs proto.Message){
 	// 	rq := a_rq.(*Test.TestRQ)
 	// 	rs := a_rs.(*Test.TestRS)

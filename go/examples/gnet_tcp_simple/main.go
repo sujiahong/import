@@ -43,9 +43,9 @@ func runServer(addr string) {
 }
 
 func runClient(addr string) {
-	client := su_net.CreateClient(addr, 1)
-	if client == nil {
-		panic("create gnet client failed")
+	client, err := su_net.CreateGNetClient(addr, 1)
+	if err != nil {
+		panic(err)
 	}
 	if err := client.RegisterOneWayHandler(10001, func(ctx *su_net.HandlerContext, req []byte) error {
 		rs := &testpb.TestRS{}

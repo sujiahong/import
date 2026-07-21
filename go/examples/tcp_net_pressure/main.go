@@ -78,35 +78,27 @@ func main() {
 	done := make(chan struct{})
 	sem := make(chan struct{}, *inflight)
 	var doneOnce sync.Once
-	clients := make([]*su_net.TcpClient, 0, *clientCount)
-	for i := 0; i < *clientCount; i++ {
-		client, err := su_net.CreateTcpClientWithConfig(server.Addr, cfg)
-		if err != nil {
-			panic(err)
-		}
-		if err := client.RegisterOneWayHandler(10001, func(ctx *su_net.HandlerContext, req []byte) error {
-			rs := &testpb.TestRS{}
-			if err := proto.Unmarshal(req, rs); err != nil {
-				panic(err)
-			}
-			<-sem
-			if atomic.AddUint64(&received, 1) == uint64(*requests) {
-				doneOnce.Do(func() { close(done) })
-			}
-			return nil
-		}); err != nil {
-			panic(err)
-		}
-		clients = append(clients, client)
+	client, err := su_net.CreateTcpClientWithConfig(server.Addr, cfg, *clientCount)
+	if err != nil {
+		panic(err)
 	}
-	defer func() {
-		for _, client := range clients {
-			client.Close()
+	if err := client.RegisterOneWayHandler(10001, func(ctx *su_net.HandlerContext, req []byte) error {
+		rs := &testpb.TestRS{}
+		if err := proto.Unmarshal(req, rs); err != nil {
+			panic(err)
 		}
-	}()
+		<-sem
+		if atomic.AddUint64(&received, 1) == uint64(*requests) {
+			doneOnce.Do(func() { close(done) })
+		}
+		return nil
+	}); err != nil {
+		panic(err)
+	}
+	defer client.Close()
 
 	if err := waitUntil("clients connect", 3*time.Second, func() bool {
-		return server.ConnCount() >= *clientCount
+		return server.ConnCount() >= *clientCount && client.ConnCount() >= *clientCount
 	}); err != nil {
 		panic(err)
 	}
@@ -128,7 +120,7 @@ func main() {
 					<-sem
 					panic(err)
 				}
-				err = clients[idx%len(clients)].Send(&su_net.DataProtocol{
+				err = client.Send(&su_net.DataProtocol{
 					Head: su_net.Header{
 						PackId:   10000,
 						RouteId:  uint64(idx + 1),

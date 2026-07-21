@@ -16,17 +16,21 @@ import (
 type GTcpClient struct {
 	gnet.BuiltinEventEngine                  // gnet 事件引擎嵌入字段。
 	*gnet.Client                             // 底层 gnet client。
-	remote_addr             string           // 远端连接地址。
-	cfgConnNum              uint8            // 期望维持的连接数量。
+	Addr                    string           // 远端连接地址。
+	Conn                    *GNetConn        // 当前首个活跃 gnet TCP 连接，保留给旧调用方直接访问。
+	cfgConnNum              int              // 期望维持的连接数量。
 	state                   int32            // 客户端状态：0 停止、1 连接中、2 已连接。
-	reconnectState          int32            // 重连调度状态：0 未调度、1 已调度。
-	connMap                 sync.Map         // 本地地址到 GNetConn 的映射。
 	connMu                  sync.RWMutex     // 保护 connList 和 pool 惰性创建。
 	connList                []*GNetConn      // 当前可用连接列表。
+	done                    chan struct{}    // 重连 goroutine 停止信号。
 	pool                    *su_util.GoPool  // 包处理 worker 池。
 	dataHandler             *TcpNetHandler   // 业务数据包处理函数。
 	dispatchMode            GNetDispatchMode // 包处理分发模式。
 	sendSeq                 uint64           // 轮询连接发送的序号。
+	closed                  int32            // client 是否已关闭，按 atomic 访问。
+	reconnectEnabled        int32            // 是否启用自动重连，按 atomic 访问。
+	reconnecting            int32            // 是否正在重连，按 atomic 访问。
+	reconnectInterval       time.Duration    // 自动重连间隔。
 	stopOnce                sync.Once        // 保证 Stop 只执行一次。
 	stopErr                 error            // Stop 返回的底层错误。
 }
@@ -37,12 +41,8 @@ func (tc *GTcpClient) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 		zap.String("local addr", c.LocalAddr().String()))
 	gconn := NewGnetConn(c)
 	c.SetContext(gconn)
-	tc.connMap.Store(c.LocalAddr().String(), gconn)
-	tc.connMu.Lock()
-	tc.connList = append(tc.connList, gconn)
-	tc.connMu.Unlock()
+	tc.addConn(gconn)
 	atomic.StoreInt32(&tc.state, 2)
-	atomic.StoreInt32(&tc.reconnectState, 0)
 	if err := gconn.Ping(); err != nil {
 		slog.Error("client initial ping failed", zap.Error(err))
 	}
@@ -53,51 +53,116 @@ func (tc *GTcpClient) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 func (tc *GTcpClient) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	slog.Info("client close conn", zap.String("remote addr", c.RemoteAddr().String()), zap.Error(err),
 		zap.String("local addr", c.LocalAddr().String()))
-	tc.connMap.Delete(c.LocalAddr().String())
-	tc.connMu.Lock()
 	closedConn, _ := c.Context().(*GNetConn)
-	for i, conn := range tc.connList {
-		if conn.Gconn == c {
-			tc.connList = append(tc.connList[:i], tc.connList[i+1:]...)
-			break
-		}
-	}
-	tc.connMu.Unlock()
 	if closedConn != nil {
 		closedConn.markClosed()
+		tc.removeConn(closedConn)
 	}
-	if atomic.LoadInt32(&tc.state) != 0 {
-		tc.Reconnect()
+	if atomic.LoadInt32(&tc.closed) == 1 {
+		return
+	}
+	if tc.ConnCount() == 0 {
+		atomic.StoreInt32(&tc.state, 1)
+	}
+	if atomic.LoadInt32(&tc.reconnectEnabled) == 1 {
+		tc.scheduleReconnect()
 	}
 	return
 }
 
 // OnTick 是 gnet 定时回调，用于心跳检查和连接数补齐。
 func (tc *GTcpClient) OnTick() (delay time.Duration, action gnet.Action) {
-	slog.Info("client tick, 发送 心跳", zap.Int32("tc.reconnectState", atomic.LoadInt32(&tc.reconnectState)), zap.Int32("tc.state", atomic.LoadInt32(&tc.state)))
+	slog.Info("client tick, 发送 心跳", zap.Int32("tc.reconnecting", atomic.LoadInt32(&tc.reconnecting)), zap.Int32("tc.state", atomic.LoadInt32(&tc.state)))
 	delay = time.Duration(PING_PONG_INTERVAL) * time.Second
-	var count uint8 = 0
-	tc.connMap.Range(func(k, v interface{}) bool {
-		key_str := k.(string)
-		gconn := v.(*GNetConn)
-		slog.Info("定时连接检查", zap.String("key_str: ", key_str))
+	conns := tc.getConns()
+	for _, gconn := range conns {
+		slog.Info("定时连接检查", zap.String("local_addr", gconn.LocalAddr))
 		gconn.CheckPong()
-		count++
-		return true
-	})
-	if count != tc.cfgConnNum {
-		slog.Error("现有连接数量!=配置连接数量", zap.Uint8("count", count), zap.Uint8("tc.cfgConnNum", tc.cfgConnNum))
-		if atomic.LoadInt32(&tc.reconnectState) == 0 && atomic.LoadInt32(&tc.state) == 2 {
-			if tc.cfgConnNum > count {
-				n := tc.cfgConnNum - count
-				var i uint8
-				for i = 0; i < n; i++ {
-					tc.Connect()
-				}
-			}
-		}
+	}
+	if len(conns) < tc.targetConnNum() && atomic.LoadInt32(&tc.reconnectEnabled) == 1 {
+		tc.scheduleReconnect()
 	}
 	return
+}
+
+// getConn 并发安全地返回首个当前 gnet TCP 连接。
+func (tc *GTcpClient) getConn() *GNetConn {
+	if tc == nil {
+		return nil
+	}
+	tc.connMu.RLock()
+	defer tc.connMu.RUnlock()
+	return tc.Conn
+}
+
+// getConns 返回当前 gnet TCP 连接快照。
+func (tc *GTcpClient) getConns() []*GNetConn {
+	if tc == nil {
+		return nil
+	}
+	tc.connMu.RLock()
+	defer tc.connMu.RUnlock()
+	conns := make([]*GNetConn, len(tc.connList))
+	copy(conns, tc.connList)
+	return conns
+}
+
+// addConn 将新连接加入连接池。
+func (tc *GTcpClient) addConn(conn *GNetConn) {
+	if tc == nil || conn == nil {
+		return
+	}
+	tc.connMu.Lock()
+	tc.connList = append(tc.connList, conn)
+	if tc.Conn == nil {
+		tc.Conn = conn
+	}
+	tc.connMu.Unlock()
+}
+
+// removeConn 从连接池移除连接，返回连接是否存在。
+func (tc *GTcpClient) removeConn(conn *GNetConn) bool {
+	if tc == nil || conn == nil {
+		return false
+	}
+	tc.connMu.Lock()
+	defer tc.connMu.Unlock()
+	removed := false
+	for i, item := range tc.connList {
+		if item == conn {
+			tc.connList = append(tc.connList[:i], tc.connList[i+1:]...)
+			removed = true
+			break
+		}
+	}
+	if tc.Conn == conn {
+		tc.Conn = nil
+		if len(tc.connList) > 0 {
+			tc.Conn = tc.connList[0]
+		}
+	}
+	return removed
+}
+
+// clearConns 清空连接池并返回原连接快照。
+func (tc *GTcpClient) clearConns() []*GNetConn {
+	if tc == nil {
+		return nil
+	}
+	tc.connMu.Lock()
+	conns := make([]*GNetConn, len(tc.connList))
+	copy(conns, tc.connList)
+	tc.connList = nil
+	tc.Conn = nil
+	tc.connMu.Unlock()
+	return conns
+}
+
+func (tc *GTcpClient) targetConnNum() int {
+	if tc == nil || tc.cfgConnNum <= 0 {
+		return 1
+	}
+	return tc.cfgConnNum
 }
 
 // pongHandler 处理 gnet 客户端收到的 PONG 心跳响应。
@@ -222,7 +287,14 @@ func (tc *GTcpClient) Stop() (err error) {
 		return nil
 	}
 	tc.stopOnce.Do(func() {
+		atomic.StoreInt32(&tc.closed, 1)
 		atomic.StoreInt32(&tc.state, 0)
+		if tc.done != nil {
+			close(tc.done)
+		}
+		for _, conn := range tc.clearConns() {
+			conn.Close()
+		}
 		if tc.Client != nil {
 			tc.stopErr = tc.Client.Stop()
 		}
@@ -254,14 +326,18 @@ func (tc *GTcpClient) ConnCount() int {
 
 // Connect 发起一次到远端地址的 gnet TCP 连接。
 func (tc *GTcpClient) Connect() error {
-	if atomic.LoadInt32(&tc.state) == 0 {
-		return su_errors.New(su_errors.CodeUnavailable, "client stopped")
+	if tc == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
 	}
+	if atomic.LoadInt32(&tc.closed) == 1 || atomic.LoadInt32(&tc.state) == 0 {
+		return su_errors.New(su_errors.CodeUnavailable, "gnet client is closed")
+	}
+	prevState := atomic.LoadInt32(&tc.state)
 	atomic.StoreInt32(&tc.state, 1)
-	conn, err := tc.Client.Dial("tcp", tc.remote_addr)
+	conn, err := tc.Client.Dial("tcp", tc.Addr)
 	if err != nil {
-		atomic.CompareAndSwapInt32(&tc.state, 1, 2)
-		slog.Error("client dial failed", zap.String("addr: ", tc.remote_addr), zap.Error(err))
+		atomic.StoreInt32(&tc.state, prevState)
+		slog.Error("client dial failed", zap.String("addr", tc.Addr), zap.Error(err))
 		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "client dial failed", err)
 	}
 	slog.Info("client connect", zap.String("remote addr:", conn.RemoteAddr().String()),
@@ -269,21 +345,86 @@ func (tc *GTcpClient) Connect() error {
 	return nil
 }
 
-// Reconnect 延迟发起重连，并确保同一时间只有一个重连调度在运行。
-func (tc *GTcpClient) Reconnect() {
-	if atomic.LoadInt32(&tc.state) == 0 {
-		return
+// ensureConnections 补齐连接池到配置连接数。
+func (tc *GTcpClient) ensureConnections() error {
+	if tc == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
 	}
-	if !atomic.CompareAndSwapInt32(&tc.reconnectState, 0, 1) {
-		return
+	if atomic.LoadInt32(&tc.closed) == 1 || atomic.LoadInt32(&tc.state) == 0 {
+		return su_errors.New(su_errors.CodeUnavailable, "gnet client is closed")
 	}
-	su_util.DelayRun(RECONNECT_INTERVAL*1000, func() {
-		err := tc.Connect()
-		if err != nil {
-			atomic.StoreInt32(&tc.reconnectState, 0)
-			tc.Reconnect()
+	missing := tc.targetConnNum() - tc.ConnCount()
+	for i := 0; i < missing; i++ {
+		if err := tc.Connect(); err != nil {
+			return err
 		}
-	})
+	}
+	return nil
+}
+
+// EnableReconnect 开启断线自动重连，可选设置重连间隔。
+func (tc *GTcpClient) EnableReconnect(interval ...time.Duration) {
+	if tc == nil {
+		return
+	}
+	if len(interval) > 0 && interval[0] > 0 {
+		tc.reconnectInterval = interval[0]
+	}
+	if tc.reconnectInterval <= 0 {
+		tc.reconnectInterval = time.Duration(RECONNECT_INTERVAL) * time.Second
+	}
+	atomic.StoreInt32(&tc.reconnectEnabled, 1)
+}
+
+// DisableReconnect 关闭断线自动重连。
+func (tc *GTcpClient) DisableReconnect() {
+	if tc == nil {
+		return
+	}
+	atomic.StoreInt32(&tc.reconnectEnabled, 0)
+}
+
+// Reconnect 立即执行一次互斥的 gnet TCP 连接池补齐。
+func (tc *GTcpClient) Reconnect() error {
+	if tc == nil {
+		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
+	}
+	if !atomic.CompareAndSwapInt32(&tc.reconnecting, 0, 1) {
+		return su_errors.NewRetryable(su_errors.CodeUnavailable, "gnet client reconnect already running")
+	}
+	defer atomic.StoreInt32(&tc.reconnecting, 0)
+	return tc.ensureConnections()
+}
+
+// scheduleReconnect 后台循环补齐连接池，直到成功、关闭或禁用重连。
+func (tc *GTcpClient) scheduleReconnect() {
+	if tc == nil || !atomic.CompareAndSwapInt32(&tc.reconnecting, 0, 1) {
+		return
+	}
+	go func() {
+		defer atomic.StoreInt32(&tc.reconnecting, 0)
+		interval := tc.reconnectInterval
+		if interval <= 0 {
+			interval = time.Duration(RECONNECT_INTERVAL) * time.Second
+		}
+		target := tc.targetConnNum()
+		for atomic.LoadInt32(&tc.closed) == 0 && atomic.LoadInt32(&tc.reconnectEnabled) == 1 {
+			if tc.ConnCount() >= target {
+				return
+			}
+			timer := time.NewTimer(interval)
+			select {
+			case <-tc.done:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			if err := tc.ensureConnections(); err != nil {
+				slog.Error("gnet client reconnect failed", zap.Error(err))
+				continue
+			}
+		}
+	}()
 }
 
 func (tc *GTcpClient) RegisterManualResponseHandler(rqPackId uint32, rsPackId uint32, handler MessageHandler) error {
@@ -307,31 +448,44 @@ func (tc *GTcpClient) RegisterOneWayHandler(packId uint32, handler MessageHandle
 	return tc.dataHandler.RegisterOneWayHandler(packId, handler)
 }
 
-// CreateGNetClient 创建 gnet TCP client 并建立指定数量连接。
-func CreateGNetClient(a_addr string, a_conn_num uint8) *GTcpClient {
-	tc := &GTcpClient{remote_addr: a_addr, state: 1, cfgConnNum: a_conn_num, dispatchMode: GNetDispatchInline, dataHandler: newTcpNetHandler()}
+// CreateGNetClient 使用默认配置创建 gnet TCP client 并建立指定数量连接。
+func CreateGNetClient(addr string, connNum ...int) (*GTcpClient, error) {
+	return CreateGNetClientWithConfig(addr, DefaultGNetTcpConfig(), connNum...)
+}
+
+// CreateGNetClientWithConfig 使用指定配置创建 gnet TCP client 并建立指定数量连接。
+func CreateGNetClientWithConfig(addr string, cfg GNetTcpConfig, connNum ...int) (*GTcpClient, error) {
+	targetConnNum, err := normalizeConnPoolSize(connNum...)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.ReconnectInterval <= 0 {
+		cfg.ReconnectInterval = time.Duration(RECONNECT_INTERVAL) * time.Second
+	}
+	tc := &GTcpClient{
+		Addr:              addr,
+		state:             1,
+		done:              make(chan struct{}),
+		cfgConnNum:        targetConnNum,
+		dispatchMode:      cfg.DispatchMode,
+		reconnectInterval: cfg.ReconnectInterval,
+		dataHandler:       newTcpNetHandler(),
+	}
 
 	client, err := gnet.NewClient(tc, gnet.WithTCPNoDelay(gnet.TCPDelay), gnet.WithTCPKeepAlive(30*time.Second), gnet.WithTicker(true))
 	if err != nil {
-		slog.Error("create client failed", zap.String("addr: ", a_addr))
-		return nil
+		return nil, su_errors.Wrap(su_errors.CodeInternal, "create gnet client failed", err)
 	}
 	err = client.Start()
 	if err != nil {
-		slog.Error("client start failed", zap.String("addr: ", a_addr))
-		return nil
+		return nil, su_errors.WrapRetryable(su_errors.CodeUnavailable, "start gnet client failed", err)
 	}
 	tc.Client = client
-	var i uint8
-	for i = 0; i < a_conn_num; i++ {
-		tc.Connect()
+	if err := tc.ensureConnections(); err != nil {
+		_ = tc.Stop()
+		return nil, err
 	}
-	return tc
-}
-
-// CreateClient 是 CreateGNetClient 的兼容别名。
-func CreateClient(a_addr string, a_conn_num uint8) *GTcpClient {
-	return CreateGNetClient(a_addr, a_conn_num)
+	return tc, nil
 }
 
 // SetDispatchMode 设置 gnet 客户端包处理模式。

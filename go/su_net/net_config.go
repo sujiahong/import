@@ -1,6 +1,7 @@
 package su_net
 
 import "time"
+import "go.local/su_errors"
 
 const (
 	PING_PONG_INTERVAL      uint32 = 19
@@ -36,4 +37,31 @@ type WSNetConfig struct {
 // DefaultWSNetConfig 返回 WebSocket 网络默认配置。
 func DefaultWSNetConfig() WSNetConfig {
 	return WSNetConfig{WriteTimeout: DEFAULT_WRITE_TIMEOUT}
+}
+
+// GNetTcpConfig 定义 gnet TCP client 的调度和重连配置。
+type GNetTcpConfig struct {
+	// DispatchMode controls whether client packet handlers run inline on the
+	// gnet event loop or are submitted to the worker pool.
+	DispatchMode GNetDispatchMode
+	// ReconnectInterval controls retry spacing when EnableReconnect is used.
+	ReconnectInterval time.Duration
+}
+
+// DefaultGNetTcpConfig 返回 gnet TCP client 默认配置。
+func DefaultGNetTcpConfig() GNetTcpConfig {
+	return GNetTcpConfig{
+		DispatchMode:      GNetDispatchInline,
+		ReconnectInterval: time.Duration(RECONNECT_INTERVAL) * time.Second,
+	}
+}
+
+func normalizeConnPoolSize(connNum ...int) (int, error) {
+	if len(connNum) == 0 {
+		return 1, nil
+	}
+	if connNum[0] <= 0 {
+		return 0, su_errors.New(su_errors.CodeInvalidArgument, "connection pool size must be > 0")
+	}
+	return connNum[0], nil
 }

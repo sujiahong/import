@@ -2,6 +2,7 @@ package su_net
 
 import (
 	"go.local/su_util"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,6 +59,84 @@ func TestCreateWSServerAndClient(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for websocket response")
+	}
+}
+
+func TestWSClientConnectionPoolRoundRobin(t *testing.T) {
+	server, err := CreateWSServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("CreateWSServer() error = %v", err)
+	}
+	defer server.Close()
+
+	var mu sync.Mutex
+	seen := make(map[*WSConn]int)
+	typeErr := make(chan any, 1)
+	if err := server.RegisterRequestResponseHandler(40, 41, func(ctx *HandlerContext, req []byte) error {
+		conn, ok := ctx.Conn.(*WSConn)
+		if !ok {
+			select {
+			case typeErr <- ctx.Conn:
+			default:
+			}
+			ctx.SetResponse(append([]byte(nil), req...))
+			return nil
+		}
+		mu.Lock()
+		seen[conn]++
+		mu.Unlock()
+		ctx.SetResponse(append([]byte(nil), req...))
+		return nil
+	}); err != nil {
+		t.Fatalf("server RegisterRequestResponseHandler() error = %v", err)
+	}
+
+	client, err := CreateWSClient(server.Addr, 3)
+	if err != nil {
+		t.Fatalf("CreateWSClient() error = %v", err)
+	}
+	defer client.Close()
+	if client.ConnCount() != 3 {
+		t.Fatalf("client ConnCount() = %d, want 3", client.ConnCount())
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.ConnCount() == 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if server.ConnCount() != 3 {
+		t.Fatalf("server ConnCount() = %d, want 3", server.ConnCount())
+	}
+
+	got := make(chan struct{}, 6)
+	if err := client.RegisterOneWayHandler(41, func(ctx *HandlerContext, req []byte) error {
+		got <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
+	}
+	for i := 0; i < 6; i++ {
+		if err := client.Send(&DataProtocol{Head: Header{PackId: 40, RouteId: uint64(i + 1)}, Data: []byte("pool")}); err != nil {
+			t.Fatalf("client Send(%d) error = %v", i, err)
+		}
+	}
+	for i := 0; i < 6; i++ {
+		select {
+		case <-got:
+		case conn := <-typeErr:
+			t.Fatalf("ctx.Conn type = %T, want *WSConn", conn)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for websocket pool response")
+		}
+	}
+
+	mu.Lock()
+	seenCount := len(seen)
+	mu.Unlock()
+	if seenCount != 3 {
+		t.Fatalf("server saw %d websocket conns, want 3", seenCount)
 	}
 }
 
