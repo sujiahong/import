@@ -3,7 +3,6 @@ package su_net
 import (
 	"go.local/su_errors"
 	slog "go.local/su_log"
-	"go.local/su_util"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,25 +13,22 @@ import (
 
 // GTcpClient 基于 gnet 管理多条 TCP 客户端连接、心跳、重连和业务包分发。
 type GTcpClient struct {
-	gnet.BuiltinEventEngine                  // gnet 事件引擎嵌入字段。
-	*gnet.Client                             // 底层 gnet client。
-	Addr                    string           // 远端连接地址。
-	Conn                    *GNetConn        // 当前首个活跃 gnet TCP 连接，保留给旧调用方直接访问。
-	cfgConnNum              int              // 期望维持的连接数量。
-	state                   int32            // 客户端状态：0 停止、1 连接中、2 已连接。
-	connMu                  sync.RWMutex     // 保护 connList 和 pool 惰性创建。
-	connList                []*GNetConn      // 当前可用连接列表。
-	done                    chan struct{}    // 重连 goroutine 停止信号。
-	pool                    *su_util.GoPool  // 包处理 worker 池。
-	dataHandler             *TcpNetHandler   // 业务数据包处理函数。
-	dispatchMode            GNetDispatchMode // 包处理分发模式。
-	sendSeq                 uint64           // 轮询连接发送的序号。
-	closed                  int32            // client 是否已关闭，按 atomic 访问。
-	reconnectEnabled        int32            // 是否启用自动重连，按 atomic 访问。
-	reconnecting            int32            // 是否正在重连，按 atomic 访问。
-	reconnectInterval       time.Duration    // 自动重连间隔。
-	stopOnce                sync.Once        // 保证 Stop 只执行一次。
-	stopErr                 error            // Stop 返回的底层错误。
+	gnet.BuiltinEventEngine                // gnet 事件引擎嵌入字段。
+	*gnet.Client                           // 底层 gnet client。
+	Addr                    string         // 远端连接地址。
+	Conn                    *GNetConn      // 当前首个活跃 gnet TCP 连接，保留给旧调用方直接访问。
+	cfgConnNum              int            // 期望维持的连接数量。
+	connMu                  sync.RWMutex   // 保护 Conn 和 connList。
+	connList                []*GNetConn    // 当前可用连接列表。
+	done                    chan struct{}  // 重连 goroutine 停止信号。
+	dataHandler             *TcpNetHandler // 业务数据包处理函数。
+	sendSeq                 uint64         // 轮询连接发送的序号。
+	closed                  int32          // client 是否已关闭，按 atomic 访问。
+	reconnectEnabled        int32          // 是否启用自动重连，按 atomic 访问。
+	reconnecting            int32          // 是否正在重连，按 atomic 访问。
+	reconnectInterval       time.Duration  // 自动重连间隔。
+	stopOnce                sync.Once      // 保证 Stop 只执行一次。
+	stopErr                 error          // Stop 返回的底层错误。
 }
 
 // OnOpen 是 gnet 连接建立回调，会注册连接并发送初始心跳。
@@ -42,7 +38,6 @@ func (tc *GTcpClient) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	gconn := NewGnetConn(c)
 	c.SetContext(gconn)
 	tc.addConn(gconn)
-	atomic.StoreInt32(&tc.state, 2)
 	if err := gconn.Ping(); err != nil {
 		slog.Error("client initial ping failed", zap.Error(err))
 	}
@@ -61,9 +56,6 @@ func (tc *GTcpClient) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	if atomic.LoadInt32(&tc.closed) == 1 {
 		return
 	}
-	if tc.ConnCount() == 0 {
-		atomic.StoreInt32(&tc.state, 1)
-	}
 	if atomic.LoadInt32(&tc.reconnectEnabled) == 1 {
 		tc.scheduleReconnect()
 	}
@@ -72,7 +64,7 @@ func (tc *GTcpClient) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 
 // OnTick 是 gnet 定时回调，用于心跳检查和连接数补齐。
 func (tc *GTcpClient) OnTick() (delay time.Duration, action gnet.Action) {
-	slog.Info("client tick, 发送 心跳", zap.Int32("tc.reconnecting", atomic.LoadInt32(&tc.reconnecting)), zap.Int32("tc.state", atomic.LoadInt32(&tc.state)))
+	slog.Info("client tick, 发送 心跳", zap.Int32("tc.reconnecting", atomic.LoadInt32(&tc.reconnecting)))
 	delay = time.Duration(PING_PONG_INTERVAL) * time.Second
 	conns := tc.getConns()
 	for _, gconn := range conns {
@@ -197,38 +189,9 @@ func (tc *GTcpClient) OnTraffic(c gnet.Conn) (action gnet.Action) {
 		return
 	}
 	gconn.Recv(frame, func(dp *DataProtocol) {
-		tc.dispatch(gconn, dp)
+		tc.handleClientPacket(gconn, dp)
 	})
 	return
-}
-
-// dispatch 根据配置选择在线处理或提交到 worker 池处理。
-func (tc *GTcpClient) dispatch(gconn *GNetConn, dp *DataProtocol) {
-	taskDP := *dp
-	switch tc.dispatchMode {
-	case GNetDispatchPool:
-		pool := tc.ensurePool()
-		if pool == nil || !pool.SendTask(taskDP.Head.RouteId, func() {
-			tc.handleClientPacket(gconn, &taskDP)
-		}) {
-			slog.Warn("gnet client task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))
-		}
-	default:
-		tc.handleClientPacket(gconn, &taskDP)
-	}
-}
-
-// ensurePool 惰性创建 gnet 客户端包处理 worker 池。
-func (tc *GTcpClient) ensurePool() *su_util.GoPool {
-	if tc == nil {
-		return nil
-	}
-	tc.connMu.Lock()
-	defer tc.connMu.Unlock()
-	if tc.pool == nil {
-		tc.pool = su_util.NewGoPool(DEFAULT_POOL_WORKERS, DEFAULT_POOL_QUEUE_SIZE)
-	}
-	return tc.pool
 }
 
 // handleClientPacket 处理客户端收到的 PONG 或已注册响应包。
@@ -281,14 +244,13 @@ func (tc *GTcpClient) SendBytes(bs []byte) error {
 	return tc.sendBytes(bs)
 }
 
-// Stop 停止 gnet client 并关闭 worker 池。
+// Stop 停止 gnet client 并关闭连接池。
 func (tc *GTcpClient) Stop() (err error) {
 	if tc == nil {
 		return nil
 	}
 	tc.stopOnce.Do(func() {
 		atomic.StoreInt32(&tc.closed, 1)
-		atomic.StoreInt32(&tc.state, 0)
 		if tc.done != nil {
 			close(tc.done)
 		}
@@ -297,9 +259,6 @@ func (tc *GTcpClient) Stop() (err error) {
 		}
 		if tc.Client != nil {
 			tc.stopErr = tc.Client.Stop()
-		}
-		if tc.pool != nil && !tc.pool.StopAndDrain(DEFAULT_CLOSE_TIMEOUT) {
-			slog.Warn("gnet client pool drain timeout")
 		}
 		slog.Info("client stop ", zap.Error(tc.stopErr)) /////关闭客户端
 	})
@@ -311,7 +270,13 @@ func (tc *GTcpClient) State() int32 {
 	if tc == nil {
 		return 0
 	}
-	return atomic.LoadInt32(&tc.state)
+	if atomic.LoadInt32(&tc.closed) == 1 || tc.Client == nil {
+		return 0
+	}
+	if tc.ConnCount() > 0 {
+		return 2
+	}
+	return 1
 }
 
 // ConnCount 返回当前活跃 gnet 连接数量。
@@ -329,14 +294,14 @@ func (tc *GTcpClient) Connect() error {
 	if tc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
 	}
-	if atomic.LoadInt32(&tc.closed) == 1 || atomic.LoadInt32(&tc.state) == 0 {
+	if atomic.LoadInt32(&tc.closed) == 1 {
 		return su_errors.New(su_errors.CodeUnavailable, "gnet client is closed")
 	}
-	prevState := atomic.LoadInt32(&tc.state)
-	atomic.StoreInt32(&tc.state, 1)
+	if tc.Client == nil {
+		return su_errors.New(su_errors.CodeUnavailable, "gnet client is not started")
+	}
 	conn, err := tc.Client.Dial("tcp", tc.Addr)
 	if err != nil {
-		atomic.StoreInt32(&tc.state, prevState)
 		slog.Error("client dial failed", zap.String("addr", tc.Addr), zap.Error(err))
 		return su_errors.WrapRetryable(su_errors.CodeUnavailable, "client dial failed", err)
 	}
@@ -350,8 +315,11 @@ func (tc *GTcpClient) ensureConnections() error {
 	if tc == nil {
 		return su_errors.New(su_errors.CodeInvalidArgument, "gnet client is nil")
 	}
-	if atomic.LoadInt32(&tc.closed) == 1 || atomic.LoadInt32(&tc.state) == 0 {
+	if atomic.LoadInt32(&tc.closed) == 1 {
 		return su_errors.New(su_errors.CodeUnavailable, "gnet client is closed")
+	}
+	if tc.Client == nil {
+		return su_errors.New(su_errors.CodeUnavailable, "gnet client is not started")
 	}
 	missing := tc.targetConnNum() - tc.ConnCount()
 	for i := 0; i < missing; i++ {
@@ -464,10 +432,8 @@ func CreateGNetClientWithConfig(addr string, cfg GNetTcpConfig, connNum ...int) 
 	}
 	tc := &GTcpClient{
 		Addr:              addr,
-		state:             1,
 		done:              make(chan struct{}),
 		cfgConnNum:        targetConnNum,
-		dispatchMode:      cfg.DispatchMode,
 		reconnectInterval: cfg.ReconnectInterval,
 		dataHandler:       newTcpNetHandler(),
 	}
@@ -486,15 +452,4 @@ func CreateGNetClientWithConfig(addr string, cfg GNetTcpConfig, connNum ...int) 
 		return nil, err
 	}
 	return tc, nil
-}
-
-// SetDispatchMode 设置 gnet 客户端包处理模式。
-func (tc *GTcpClient) SetDispatchMode(mode GNetDispatchMode) {
-	if tc == nil {
-		return
-	}
-	tc.dispatchMode = mode
-	if mode == GNetDispatchPool {
-		tc.ensurePool()
-	}
 }

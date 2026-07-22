@@ -39,11 +39,8 @@ func DefaultWSNetConfig() WSNetConfig {
 	return WSNetConfig{WriteTimeout: DEFAULT_WRITE_TIMEOUT}
 }
 
-// GNetTcpConfig 定义 gnet TCP client 的调度和重连配置。
+// GNetTcpConfig 定义 gnet TCP client 的重连配置。
 type GNetTcpConfig struct {
-	// DispatchMode controls whether client packet handlers run inline on the
-	// gnet event loop or are submitted to the worker pool.
-	DispatchMode GNetDispatchMode
 	// ReconnectInterval controls retry spacing when EnableReconnect is used.
 	ReconnectInterval time.Duration
 }
@@ -51,7 +48,6 @@ type GNetTcpConfig struct {
 // DefaultGNetTcpConfig 返回 gnet TCP client 默认配置。
 func DefaultGNetTcpConfig() GNetTcpConfig {
 	return GNetTcpConfig{
-		DispatchMode:      GNetDispatchInline,
 		ReconnectInterval: time.Duration(RECONNECT_INTERVAL) * time.Second,
 	}
 }

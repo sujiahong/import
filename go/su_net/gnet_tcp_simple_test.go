@@ -12,7 +12,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/panjf2000/gnet/v2"
 	testpb "go.local/proto/Test"
-	"go.local/su_util"
 )
 
 func freeTCPPort(t *testing.T) string {
@@ -42,6 +41,18 @@ func waitForState(t *testing.T, name string, state *int32, want int32) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("%s state = %d, want %d", name, atomic.LoadInt32(state), want)
+}
+
+func waitForClientState(t *testing.T, name string, client *GTcpClient, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if client.State() == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("%s state = %d, want %d", name, client.State(), want)
 }
 
 func waitForCondition(t *testing.T, name string, timeout time.Duration, ok func() bool) {
@@ -97,7 +108,7 @@ func TestGNetTcpSimpleClientServer(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
 	}
-	waitForState(t, "client", &client.state, 2)
+	waitForClientState(t, "client", client, 2)
 
 	rqBytes, err := proto.Marshal(&testpb.TestRQ{
 		Test1: proto.Uint32(41),
@@ -147,18 +158,14 @@ func TestGNetClientWithConfigAppliesOptions(t *testing.T) {
 	waitForState(t, "server", &server.Stat, 2)
 
 	client, err := CreateGNetClientWithConfig("127.0.0.1:"+port, GNetTcpConfig{
-		DispatchMode:      GNetDispatchPool,
 		ReconnectInterval: 25 * time.Millisecond,
 	}, 1)
 	if err != nil {
 		t.Fatalf("CreateGNetClientWithConfig() error = %v", err)
 	}
 	defer client.Stop()
-	waitForState(t, "client", &client.state, 2)
+	waitForClientState(t, "client", client, 2)
 
-	if client.dispatchMode != GNetDispatchPool {
-		t.Fatalf("dispatchMode = %d, want %d", client.dispatchMode, GNetDispatchPool)
-	}
 	if client.reconnectInterval != 25*time.Millisecond {
 		t.Fatalf("reconnectInterval = %s, want 25ms", client.reconnectInterval)
 	}
@@ -263,7 +270,7 @@ func TestGNetTcpBinaryPayloadClientServer(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("client RegisterOneWayHandler() error = %v", err)
 	}
-	waitForState(t, "client", &client.state, 2)
+	waitForClientState(t, "client", client, 2)
 
 	err = client.Send(&DataProtocol{
 		Head: Header{PackId: 20000, RouteId: 1, HeadUuid: 2},
@@ -392,7 +399,7 @@ func TestGNetConnCloseIsConcurrentSafe(t *testing.T) {
 		t.Fatalf("CreateGNetClient() error = %v", err)
 	}
 	defer client.Stop()
-	waitForState(t, "client", &client.state, 2)
+	waitForClientState(t, "client", client, 2)
 
 	var target *GNetConn
 	waitForCondition(t, "client conn", 3*time.Second, func() bool {
@@ -431,7 +438,7 @@ func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateGNetClient() error = %v", err)
 	}
-	waitForState(t, "client", &client.state, 2)
+	waitForClientState(t, "client", client, 2)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
@@ -456,30 +463,9 @@ func TestGNetClientStopIsConcurrentSafe(t *testing.T) {
 	}
 }
 
-func TestGNetClientStopDrainsQueuedPoolTasks(t *testing.T) {
-	client := &GTcpClient{state: 2, pool: su_util.NewGoPool(1, 16)}
-	const tasks = 8
-	var ran int32
-	for i := 0; i < tasks; i++ {
-		if !client.pool.SendTask(uint64(i), func() {
-			time.Sleep(5 * time.Millisecond)
-			atomic.AddInt32(&ran, 1)
-		}) {
-			t.Fatalf("SendTask(%d) failed", i)
-		}
-	}
-
-	if err := client.Stop(); err != nil {
-		t.Fatalf("Stop() error = %v", err)
-	}
-	if got := atomic.LoadInt32(&ran); got != tasks {
-		t.Fatalf("ran tasks = %d, want %d", got, tasks)
-	}
-}
-
-func TestGNetClientConnectFailureRestoresConnectedState(t *testing.T) {
+func TestGNetClientConnectFailureKeepsClientOpen(t *testing.T) {
 	port := freeTCPPort(t)
-	client := &GTcpClient{Addr: "127.0.0.1:" + port, state: 2}
+	client := &GTcpClient{Addr: "127.0.0.1:" + port}
 	gclient, err := gnet.NewClient(client)
 	if err != nil {
 		t.Fatalf("gnet.NewClient() error = %v", err)
@@ -493,8 +479,8 @@ func TestGNetClientConnectFailureRestoresConnectedState(t *testing.T) {
 	if err := client.Connect(); err == nil {
 		t.Fatal("Connect() error = nil, want dial failure")
 	}
-	if got := client.State(); got != 2 {
-		t.Fatalf("client state = %d, want 2 after dial failure", got)
+	if got := client.State(); got != 1 {
+		t.Fatalf("client state = %d, want 1 after dial failure with no active conn", got)
 	}
 }
 
