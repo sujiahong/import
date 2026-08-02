@@ -114,7 +114,10 @@ func (ts *GTcpServer) dispatch(gconn *GNetConn, dp *DataProtocol) {
 	case GNetDispatchInline:
 		ts.handleServerPacket(gconn, &taskDP)
 	default:
-		if !ts.pool.SendTask(taskDP.Head.RouteId, func() {
+		// 事件循环线程内不允许阻塞，队列满时丢弃任务保护事件循环；
+		// Data 必须复制，任务异步执行时调用方可能已复用底层数组。
+		taskDP.Data = append([]byte(nil), dp.Data...)
+		if !ts.pool.TrySendTask(taskDP.Head.RouteId, func() {
 			ts.handleServerPacket(gconn, &taskDP)
 		}) {
 			slog.Warn("gnet server task dropped", zap.Uint64("route_id", taskDP.Head.RouteId))

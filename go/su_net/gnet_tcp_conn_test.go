@@ -52,6 +52,34 @@ func TestRecvHandlesStickyPackets(t *testing.T) {
 	}
 }
 
+// TestRecvDataSurvivesNextFrame 验证上一帧解析出的 Data 引用在后续帧到达后
+// 不被覆写（半包缓存不得复用旧数组覆盖已派发的 Data）。
+func TestRecvDataSurvivesNextFrame(t *testing.T) {
+	encoded, err := Encode(&DataProtocol{Head: Header{PackId: 7}, Data: []byte("payload-data")})
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+
+	gnc := NewGnetConn(nil)
+	var captured []byte
+	gnc.Recv(encoded, func(dp *DataProtocol) {
+		captured = dp.Data
+	})
+	if string(captured) != "payload-data" {
+		t.Fatalf("captured data = %q, want payload-data", captured)
+	}
+
+	second, err := Encode(&DataProtocol{Head: Header{PackId: 8}, Data: []byte("second-payload")})
+	if err != nil {
+		t.Fatalf("Encode(second) error = %v", err)
+	}
+	gnc.Recv(second, func(dp *DataProtocol) {})
+
+	if string(captured) != "payload-data" {
+		t.Fatalf("captured data corrupted after next frame: %q", captured)
+	}
+}
+
 func TestRecvInvalidPacketClearsBuffer(t *testing.T) {
 	buf := make([]byte, HeadLength)
 	binary.BigEndian.PutUint32(buf[0:4], HeadLength-1)

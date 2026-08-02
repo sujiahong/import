@@ -64,6 +64,7 @@ func (gnc *GNetConn) SendBytes(aData []byte) error {
 }
 
 // Recv 处理 gnet 读到的帧数据，支持粘包/半包解析。
+// Data 引用 recvData 底层数组，仅在回调调用期间有效，异步使用前必须复制。
 func (gnc *GNetConn) Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)) {
 	gnc.recvData = append(gnc.recvData, frame...)
 	var err error
@@ -72,7 +73,7 @@ func (gnc *GNetConn) Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)) 
 			return
 		}
 		var dp DataProtocol
-		gnc.recvData, dp, err = Decode(gnc.recvData)
+		gnc.recvData, dp, err = DecodeNoCopy(gnc.recvData)
 		if err != nil {
 			if errors.Is(err, ErrIncompletePacket) {
 				return
@@ -81,6 +82,10 @@ func (gnc *GNetConn) Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)) 
 			gnc.recvData = gnc.recvData[:0]
 			gnc.Close()
 			return
+		}
+		if len(gnc.recvData) == 0 {
+			// 排空后置 nil 释放底层数组，防止下次 append 从 index 0 覆写已派发的 Data。
+			gnc.recvData = nil
 		}
 		a_handle_func(&dp)
 		if len(gnc.recvData) <= 0 {

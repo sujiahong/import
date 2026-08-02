@@ -213,13 +213,14 @@ func (tc *TcpConn) readLoop(handler TcpHandler) {
 }
 
 // recv 处理 TCP 粘包/半包，并将完整业务包交给 handler。
+// Data 引用 recvData 底层数组，仅在 handler 调用期间有效，异步使用前必须复制。
 func (tc *TcpConn) recv(frame []byte, handler TcpHandler) error {
 	tc.recvData = append(tc.recvData, frame...)
 	for {
 		if len(tc.recvData) < int(HeadLength) {
 			return nil
 		}
-		remain, dp, err := Decode(tc.recvData)
+		remain, dp, err := DecodeNoCopy(tc.recvData)
 		if err != nil {
 			if errors.Is(err, ErrIncompletePacket) {
 				return nil
@@ -227,7 +228,12 @@ func (tc *TcpConn) recv(frame []byte, handler TcpHandler) error {
 			tc.recvData = tc.recvData[:0]
 			return err
 		}
-		tc.recvData = remain
+		if len(remain) == 0 {
+			// 排空后置 nil 释放底层数组，防止下次 append 从 index 0 覆写已派发的 Data。
+			tc.recvData = nil
+		} else {
+			tc.recvData = remain
+		}
 		handled, err := tc.handleControlPacket(&dp)
 		if err != nil {
 			if atomic.LoadInt32(&tc.closed) == 1 {

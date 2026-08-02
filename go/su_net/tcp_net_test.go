@@ -464,3 +464,34 @@ func TestTcpConnRecvControlPacketAfterCloseReturnsNil(t *testing.T) {
 		t.Fatalf("recv() error = %v, want nil during close", err)
 	}
 }
+
+// TestTcpConnRecvDataSurvivesNextFrame 验证上一帧解析出的 Data 引用在后续帧
+// 到达后不被覆写（半包缓存不得复用旧数组覆盖已派发的 Data）。
+func TestTcpConnRecvDataSurvivesNextFrame(t *testing.T) {
+	conn := newTcpConn(nil)
+	encoded, err := Encode(&DataProtocol{Head: Header{PackId: 7}, Data: []byte("payload-data")})
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	var captured []byte
+	if err := conn.recv(encoded, func(conn *TcpConn, dp *DataProtocol) {
+		captured = dp.Data
+	}); err != nil {
+		t.Fatalf("recv() error = %v", err)
+	}
+	if string(captured) != "payload-data" {
+		t.Fatalf("captured data = %q, want payload-data", captured)
+	}
+
+	second, err := Encode(&DataProtocol{Head: Header{PackId: 8}, Data: []byte("second-payload")})
+	if err != nil {
+		t.Fatalf("Encode(second) error = %v", err)
+	}
+	if err := conn.recv(second, func(conn *TcpConn, dp *DataProtocol) {}); err != nil {
+		t.Fatalf("recv(second) error = %v", err)
+	}
+
+	if string(captured) != "payload-data" {
+		t.Fatalf("captured data corrupted after next frame: %q", captured)
+	}
+}
