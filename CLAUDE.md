@@ -49,6 +49,24 @@ The Go code is a layered backend framework, built bottom-up:
 **Application layer**:
 - `su_app` — Module-based application lifecycle: `App` with `Register(Module)` / `Start` / `Stop`. Modules are started in registration order, stopped in reverse. Pre-built modules for config, log, MySQL, Redis, Kafka MQ, metrics.
 
+**Distributed components** (`distributed/`):
+- `circuit` — Circuit breaker
+- `health` — Health checking
+- `lb` — Load balancer
+- `limit` — Rate limiting
+- `registry` — Service registry
+- `rpc` — RPC with JSON codec over custom transport
+- `transport` — Transport abstraction
+
+**Standalone Go programs**:
+- `examples/` — Runnable network demos: `gnet_tcp_simple`, `gnet_tcp_pressure`, `tcp_net_pressure`, `ws_net_pressure` (load/pressure tests)
+- `mcp_redis_server/` — MCP (Model Context Protocol) server exposing Redis
+- `deepseek/` — DeepSeek API client (models, chat completions)
+- `geo/` — 2D geometry utilities (points, crosspoints)
+- `spider/` — Commodity data spider
+- `cgo_demo/` — CGo hello-world example
+- `proto/` — Protobuf definitions (e.g., `Test` message)
+
 ### Key Patterns
 
 - **Handler Registration**: In `su_net`, register handlers by packet ID — `RegisterRequestResponseHandler(rqID, rsID, handler)` auto-replies, `RegisterOneWayHandler(ID, handler)` sends no reply, `RegisterManualResponseHandler(rqID, rsID, handler)` lets the handler decide
@@ -80,6 +98,11 @@ AI/LLM experiments and web scraping:
 ## JavaScript
 
 Node.js Worker Threads pattern: `main_exec.js` creates a `config_worker.js` Worker that reloads game config on a 5-minute interval.
+
+## Other
+
+- `day_draft/` — Daily dated scratch/draft notes (one directory per date)
+- `.claude/settings.local.json` — Project permission allowlist (currently allows `Bash(go run *)`)
 
 ## Docker
 
