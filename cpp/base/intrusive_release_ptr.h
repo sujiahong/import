@@ -6,6 +6,9 @@
 #include <cstddef>
 #include <utility>
 
+///跨线程传递时，才允许值传递 shared_ptr（因为要延长生命周期）。
+//同一线程内的函数调用，一律传递 const shared_ptr<T>& 或裸指针 T*。
+
 namespace su {
 class BaseRef
 {
