@@ -87,7 +87,9 @@ func (gnc *GNetConn) Recv(frame []byte, a_handle_func func(a_dp *DataProtocol)) 
 			// 排空后置 nil 释放底层数组，防止下次 append 从 index 0 覆写已派发的 Data。
 			gnc.recvData = nil
 		}
-		a_handle_func(&dp)
+		if a_handle_func != nil {
+		    a_handle_func(&dp)
+		}
 		if len(gnc.recvData) <= 0 {
 			return
 		}
