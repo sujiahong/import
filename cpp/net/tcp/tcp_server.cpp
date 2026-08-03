@@ -19,7 +19,10 @@ TcpServer::TcpServer(EventLoop* a_loop, const std::string& a_ip_port, const std:
     m_thread_pool_(a_loop, 4)
 {
     m_conn_id_ = 1;
-    m_acceptor_.SetNewConnectionCallback(std::bind(NewConnection, this, std::placeholders::_1));
+    m_acceptor_.SetNewConnectionCallback(
+        std::bind(&TcpServer::NewConnection, this,
+                  std::placeholders::_1, std::placeholders::_2,
+                  std::placeholders::_3));
 }
 
 TcpServer::~TcpServer()

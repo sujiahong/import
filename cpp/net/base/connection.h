@@ -9,6 +9,7 @@
 #include <string>
 
 #include "../../base/original_base.h"
+#include "base_define.h"
 
 namespace su 
 {
@@ -54,8 +55,8 @@ public:
     const std::string& GetName() const { return m_name_;}
     void GetLocalIPAndPort(std::string& a_ip, unsigned short& a_port)
     {
-        a_ip = m_local_ip_;
-        a_port = m_local_port_;
+        a_ip = m_ip_;
+        a_port = m_port_;
     }
     void GetPeerIPAndPort(std::string& a_ip, unsigned short& a_port)
     {

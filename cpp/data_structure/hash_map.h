@@ -147,8 +147,8 @@ public:
     virtual ~HashMap();
 
 public:
-    inline unsigned int size() const{return total_entity_num_};
-    inline unsigned int length() const{return table_length_};
+    inline unsigned int size() const{return total_entity_num_;}
+    inline unsigned int length() const{return table_length_;}
 
     ///清空数据
     void clear();

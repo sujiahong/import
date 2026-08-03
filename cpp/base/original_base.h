@@ -136,15 +136,42 @@
 
 namespace su
 {
-////继承，实现类不可拷贝，赋值
+/// @brief 通用接口基类
+class Interface
+{
+public:
+    Interface() = default;
+    virtual ~Interface() = default;
+
+    Interface(const Interface&) = delete;
+    Interface& operator=(const Interface&) = delete;
+};
+/// @brief 不可移动，可拷贝基类
+class Nonmovable
+{
+protected:
+    Nonmovable() = default;
+    ~Nonmovable() = default;
+
+    Nonmovable(Nonmovable&&) = delete;
+    Nonmovable& operator=(Nonmovable&&) = delete;
+    Nonmovable(const Nonmovable&) = default;
+    Nonmovable& operator=(const Nonmovable&) = default;
+
+};
+
+////继承，实现类不可拷贝，可移动基类
 class Noncopyable
 {
 protected:
     Noncopyable(){};
     ~Noncopyable(){};
-private:
-    Noncopyable(const Noncopyable&)=delete;
-    const Noncopyable& operator=(const Noncopyable&)=delete;
+
+    Noncopyable(const Noncopyable&) = delete;
+    Noncopyable& operator=(const Noncopyable&) = delete;
+
+    Noncopyable(Noncopyable&&) = default;
+    Noncopyable& operator=(Noncopyable&&) = default;
 };
 
 class Copyable
@@ -161,8 +188,8 @@ class OnlyOneInstance
 public:
     static T& Instance()
     {
-        static T intance;////////在 C++ 11 之后，被 static修饰的函数内部变量可以保证是线程安全的
-        return intance; 
+        static T instance;////////在 C++ 11 之后，被 static修饰的函数内部变量可以保证是线程安全的
+        return instance;
     }
 private:
     OnlyOneInstance(OnlyOneInstance<T>&&);
@@ -207,8 +234,34 @@ pthread_once_t Singleton<T>::m_ponce_ = PTHREAD_ONCE_INIT;
 template<typename T>
 T* Singleton<T>::m_value_ = 0;
 
-}
 
+/// @brief 引用计数基类
+class RefCounted: public Noncopyable
+{
+private:
+    int ref_count_ = 0;////引用计数
+public:
+    void AddRef()
+    {
+        __sync_add_and_fetch(&ref_count_, 1);
+    }
+    void Release()
+    {
+        if (__sync_sub_and_fetch(&ref_count_, 1) == 0)
+        {
+            delete this;
+        }
+    }
+    int GetRefCount() const
+    {
+        return __atomic_load_n(&ref_count_, __ATOMIC_ACQUIRE);
+    }
+protected:
+    RefCounted() = default;
+    virtual ~RefCounted() = default;
+};
+
+}
 
 
 #endif

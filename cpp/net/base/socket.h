@@ -5,7 +5,7 @@
 #ifndef __SOCKET_H__
 #define __SOCKET_H__
 
-#include "../base/original_base.h"
+#include "../../base/original_base.h"
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -26,7 +26,8 @@ private:
     int m_sock_fd_;
 public:
     Socket() = delete;
-    Socket(int a_sa_family, int a_type):m_sock_ver_(a_sa_family),m_type_(a_type)
+    Socket(int a_sa_family, int a_type):
+        m_sock_ver_(a_sa_family), m_type_(a_type), m_sock_fd_(-1)
     {
         m_sock_fd_ = Create(a_sa_family, a_type);
     }
@@ -43,20 +44,23 @@ public:
         m_sock_ver_ = a_sa_family;
         m_type_ = a_type;
         int sock_fd = ::socket(a_sa_family, m_type_, 0);
-        if (m_sock_fd_ < 0)
-            m_sock_fd_ = sock_fd;
-        else
+        if (sock_fd < 0)
         {
-            ::close(m_sock_fd_);
-            m_sock_fd_ = sock_fd;
+            m_sock_fd_ = -1;
+            return -1;
         }
+        if (m_sock_fd_ >= 0)
+            ::close(m_sock_fd_);
+        m_sock_fd_ = sock_fd;
         return sock_fd;
     }
     void Bind(const std::string a_ip, const unsigned short a_port)
     {
         struct sockaddr_in local_addr;
         local_addr.sin_family = AF_INET;
-        local_addr.sin_addr.s_addr = inet_addr(a_ip.c_str());
+        local_addr.sin_addr.s_addr = a_ip.empty()
+            ? htonl(INADDR_ANY)
+            : inet_addr(a_ip.c_str());
         local_addr.sin_port = htons(a_port);
         int ret = ::bind(m_sock_fd_, (struct sockaddr*)&local_addr, sizeof(local_addr));
         if (ret < 0)
@@ -118,7 +122,8 @@ public:
         }
         else
             ExtractIPAndPortFromSockAddr(&peer_addr, a_peer_ip, a_peer_port);
-        Socket::SetNoBlockAndCloseOnExec(conn_fd); /////set nonblocking and close on exec
+        if (conn_fd >= 0)
+            Socket::SetNoBlockAndCloseOnExec(conn_fd); /////set nonblocking and close on exec
         return conn_fd;
     }
     int Connect(std::string a_ip, unsigned short a_port)
@@ -168,7 +173,7 @@ public:
     }
     static void ExtractIPAndPortFromSockAddr(struct sockaddr* a_addr, std::string& a_ip, unsigned short& a_port)
     {
-        struct sockaddr_in* addr_in = (struct sockaddr_in*)&a_addr;
+        struct sockaddr_in* addr_in = reinterpret_cast<struct sockaddr_in*>(a_addr);
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(addr_in->sin_addr.s_addr), ip_str, sizeof(ip_str));
         a_port = ntohs(addr_in->sin_port);

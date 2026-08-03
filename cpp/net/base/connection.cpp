@@ -60,7 +60,7 @@ void Connection::HandleWrite()
 
 void Connection::HandleClose()
 {
-    m_conn_stat_ = SE_CLOSED;
+    m_conn_stat_ = SE_DISCONNECTED;
     ////// todo log
     m_loop_->RemoveChannel(m_channel_);
     ////// todo log

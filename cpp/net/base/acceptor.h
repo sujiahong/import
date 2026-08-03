@@ -7,10 +7,12 @@
 
 #include <vector>
 #include <string>
+#include <functional>
 #include <sys/types.h>
 
 #include "base_define.h"
 #include "../../base/original_base.h"
+#include "../../toolbox/string_function.hpp"
 #include "socket.h"
 #include "channel.h"
 
@@ -27,7 +29,7 @@ private:
 public:
     Acceptor(EventLoop* a_loop, const std::string& a_ip_port, bool a_reuse_port):
         m_listen_sock_(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC),
-        m_listen_channel_(a_loop, &m_listen_sock_)
+        m_listen_channel_(a_loop, m_listen_sock_.Fd())
     {
         m_listen_sock_.SetReuseAddr(true);
         m_listen_sock_.SetReusePort(a_reuse_port);
@@ -38,7 +40,7 @@ public:
             m_ltn_ip_="";
             m_ltn_port_ = su::String2Number<unsigned short>(str_vec[0]);
         }
-        else if (str_vec.szie() == 2)
+        else if (str_vec.size() == 2)
         {
             m_ltn_ip_ = str_vec[0];
             m_ltn_port_ = su::String2Number<unsigned short>(str_vec[1]);
@@ -56,7 +58,7 @@ public:
     {
         m_listen_channel_.DisableAll();
     }
-    void SetNewConnectionCallback(NewConnectionCallback a_cb)
+    void SetNewConnectionCallback(NEW_CONNECTION_CALLBACK_TYPE a_cb)
     {
         m_new_connection_callback_ = a_cb;
     }

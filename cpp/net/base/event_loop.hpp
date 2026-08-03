@@ -44,7 +44,7 @@ public:
         m_cur_handle_channel_ = NULL;
         m_ep_ = new EPoll();
     }
-    ~EventLoop();
+    ~EventLoop()
     {
         delete m_ep_;
         m_cur_handle_channel_ = NULL;
@@ -103,6 +103,8 @@ public:
 
 // __thread EventLoop* t_loopInThisThread = NULL;
 
+class EventLoopThreadPool;
+
 typedef struct ThreadParam
 {
     EventLoopThreadPool* pool;
@@ -134,14 +136,10 @@ public:
     static void* ThreadFunc(void* a_arg)
     {
         assert(a_arg != NULL);
-        THREAD_PARAM* param = (THREAD_PARAM*)a_arg;
+        std::unique_ptr<THREAD_PARAM> param(static_cast<THREAD_PARAM*>(a_arg));
         EventLoop* loop = new EventLoop();
         param->pool->m_event_loops_[param->thd_index] = loop;
-        
-        while (loop != 0)
-        {
-            loop->Loop();
-        }
+        loop->Loop();
         return 0;
     }
     void Start()
@@ -150,12 +148,11 @@ public:
         int ret = 0;
         for (unsigned int i = 0; i < m_thread_num_; ++i)
         {
-            THREAD_PARAM param;
-            param.pool = this;
-            param.thd_index = i;
-            ret = pthread_create(&(m_tid_arr_[i]), NULL, ThreadFunc, (void*)&param);
+            THREAD_PARAM* param = new THREAD_PARAM{this, i};
+            ret = pthread_create(&(m_tid_arr_[i]), NULL, ThreadFunc, param);
             if (ret != 0)
             {
+                delete param;
                 // std::cout<<" Error: create thread失败 ret="<<ret<<" i="<<i<<std::endl;
                 continue;
             }

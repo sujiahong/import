@@ -18,7 +18,7 @@ void su::Channel::HandleEvent(unsigned int a_rt_time)
     {
         if (m_close_callback_) m_close_callback_();
     }
-    if (m_read_callback_ & EPOLLERR) // error
+    if (m_ready_events_ & EPOLLERR) // error
     {
         if (m_error_callback_) m_error_callback_();
     }

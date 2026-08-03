@@ -1,6 +1,8 @@
 #ifndef __BASE_MACRO_H__
 #define __BASE_MACRO_H__
 
+#include <cstddef>
+
 #ifndef offsetof        
 #define offsetof(TYPE, MEMBER) ((size_t) ((char*)&((TYPE *)0)->MEMBER))      /////计算结构体内 member 的偏移量
 #endif
@@ -9,48 +11,60 @@
 #define containerof_new(ptr, type, memb) ((type*) ((char*)((const typeof(((type*)0) -> memb)*)(ptr)) - offsetof(type,memb))) /////返回结构体类型的指针
 #endif
 
+namespace su
+{
+inline void CpuRelax() noexcept
+{
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield" ::: "memory");
+#elif defined(__riscv)
+    __asm__ __volatile__(".insn i 0x0f, 0, x0, x0, 0x010" ::: "memory");
+#else
+    __atomic_signal_fence(__ATOMIC_ACQUIRE);
+#endif
+}
+
+inline void ReadMemBarrier() noexcept
+{
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+}
+
+inline void WriteMemBarrier() noexcept
+{
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+}
+
+inline void FullMemBarrier() noexcept
+{
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+} // namespace su
+
 /////第一个线程可以过去，后面的线程等待
-#define spin_lock(lk) while(!__sync_bool_compare_and_swap(lk, 0, 1)) { \
-                          do { \
-                                // 自旋等待，直到获取锁
-                                #if defined(__x86_64__) || defined(__i386__) \
-                                    __builtin_ia32_pause();  \ // x86架构优化：降低CPU功耗
-                                #elif defined(__aarch64__) \
-                                    __asm__ __volatile__("yield" ::: "memory"); \ // ARM架构优化
-                                #endif \
-                          } while(*lk); \
-                    }
-#define spin_unlock(lk) __sync_lock_release(lk);
+#define spin_lock(lk) do {                                             \
+    auto* const spin_lock_ptr = (lk);                                 \
+    int spin_lock_expected = 0;                                       \
+    while (!__atomic_compare_exchange_n(                              \
+        spin_lock_ptr, &spin_lock_expected, 1, false,                 \
+        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {                        \
+        spin_lock_expected = 0;                                       \
+        while (__atomic_load_n(spin_lock_ptr, __ATOMIC_RELAXED)) {     \
+            ::su::CpuRelax();                                         \
+        }                                                              \
+    }                                                                  \
+} while (0)
+
+#define spin_unlock(lk) do {                                           \
+    __atomic_store_n((lk), 0, __ATOMIC_RELEASE);                       \
+} while (0)
 
 ////内存读，写屏障
-#define read_mem_barrier do {                         \
-    #if defined(__x86_64__) || defined(__i386__)        \
-        __asm__ __volatile__("lfence":::"memory");      \
-    #elif  defined(__aarch64__)                         \
-        __asm__ __volatile__("dmb ishld":::"memory");   \
-    #else                                               \
-        __atomic_thread_fence(__ATOMIC_ACQUIRE);        \
-    #endif                                              \
-} while(0);
-#define write_mem_barrier do {                        \
-    #if defined(__x86_64__) || defined(__i386__)        \
-        __asm__ __volatile__("sfence":::"memory");      \
-    #elif  defined(__aarch64__)                         \
-        __asm__ __volatile__("dmb ishst":::"memory");   \
-    #else                                               \
-        __atomic_thread_fence(__ATOMIC_RELEASE);        \
-    #endif                                              \
-} while(0);
+#define read_mem_barrier do { ::su::ReadMemBarrier(); } while (0)
+#define write_mem_barrier do { ::su::WriteMemBarrier(); } while (0)
 // 全内存屏障（Full Barrier）
-#define full_mem_barrier do { \
-    #if defined(__x86_64__) || defined(__i386__)       \
-        __asm__ __volatile__("mfence" ::: "memory");    \
-    #elif defined(__aarch64__)                         \
-        __asm__ __volatile__("dmb ish" ::: "memory");   \
-    #else                                               \
-        __atomic_thread_fence(__ATOMIC_SEQ_CST);        \
-    #endif                                              \
-} while(0)
+#define full_mem_barrier do { ::su::FullMemBarrier(); } while (0)
 
 /*
 // 原型

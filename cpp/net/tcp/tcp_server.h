@@ -7,12 +7,12 @@
 
 #include "../../base/original_base.h"
 #include "../base/base_define.h"
+#include "../base/acceptor.h"
+#include "../base/event_loop.hpp"
 
 namespace su
 {
 class EventLoop;
-class Acceptor;
-class EventLoopThreadPool;
 class TcpServer: public Noncopyable
 {
     
