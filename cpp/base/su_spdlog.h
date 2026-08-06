@@ -36,7 +36,7 @@ private:
     SuSpdlog() = default;
     ~SuSpdlog() = default;
 public:
-    void InitSuSpdlog(const std::string& log_path = "./log", const std::string& log_level = "trace")
+    void InitSuSpdlog(const std::string& log_path = "./log", const std::string& file_name = "server-log", const std::string& log_level = "trace")
     {
         std::lock_guard<std::mutex> guard(GetMutex());
         spdlog::level::level_enum spdlog_level = ToLevel(log_level);
@@ -46,9 +46,9 @@ public:
             spdlog::init_thread_pool(kAsyncQueueSize, kAsyncThreadCount);
         }
 
-        async_rotate_logger_ = GetOrCreateAsyncRotateLogger(log_path);
-        spd_rotate_logger_ = GetOrCreateRotateLogger(log_path);
-        spd_basic_logger_ = GetOrCreateBasicLogger(log_path);
+        async_rotate_logger_ = GetOrCreateAsyncRotateLogger(log_path, file_name);
+        spd_rotate_logger_ = GetOrCreateRotateLogger(log_path, file_name);
+        spd_basic_logger_ = GetOrCreateBasicLogger(log_path, file_name);
 
         SetupLogger(async_rotate_logger_, spdlog_level);
         SetupLogger(spd_rotate_logger_, spdlog_level);
@@ -136,8 +136,7 @@ private:
         return path + "/" + filename;
     }
 
-    static void SetupLogger(const std::shared_ptr<spdlog::logger>& logger,
-                            spdlog::level::level_enum level)
+    static void SetupLogger(const std::shared_ptr<spdlog::logger>& logger,spdlog::level::level_enum level)
     {
         if (!logger)
         {
@@ -147,42 +146,42 @@ private:
         logger->set_level(level);
     }
 
-    static std::shared_ptr<spdlog::logger> GetOrCreateAsyncRotateLogger(const std::string& log_path)
+    static std::shared_ptr<spdlog::logger> GetOrCreateAsyncRotateLogger(const std::string& log_path, const std::string& file_name)
     {
         std::shared_ptr<spdlog::logger> logger = spdlog::get(kAsyncRotateLoggerName);
         if (!logger)
         {
             logger = spdlog::create_async<spdlog::sinks::rotating_file_sink_mt>(
                 kAsyncRotateLoggerName,
-                JoinPath(log_path, "async_rotate.log"),
+                JoinPath(log_path, file_name + "_async_rotate.log"),
                 kMaxFileSize,
                 kMaxFiles);
         }
         return logger;
     }
 
-    static std::shared_ptr<spdlog::logger> GetOrCreateRotateLogger(const std::string& log_path)
+    static std::shared_ptr<spdlog::logger> GetOrCreateRotateLogger(const std::string& log_path, const std::string& file_name)
     {
         std::shared_ptr<spdlog::logger> logger = spdlog::get(kRotateLoggerName);
         if (!logger)
         {
             logger = spdlog::rotating_logger_mt(
                 kRotateLoggerName,
-                JoinPath(log_path, "rotate.log"),
+                JoinPath(log_path, file_name + "_rotate.log"),
                 kMaxFileSize,
                 kMaxFiles);
         }
         return logger;
     }
 
-    static std::shared_ptr<spdlog::logger> GetOrCreateBasicLogger(const std::string& log_path)
+    static std::shared_ptr<spdlog::logger> GetOrCreateBasicLogger(const std::string& log_path, const std::string& file_name)
     {
         std::shared_ptr<spdlog::logger> logger = spdlog::get(kBasicLoggerName);
         if (!logger)
         {
             logger = spdlog::basic_logger_mt(
                 kBasicLoggerName,
-                JoinPath(log_path, "basic.log"));
+                JoinPath(log_path, file_name + "_basic.log"));
         }
         return logger;
     }
