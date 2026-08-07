@@ -35,8 +35,8 @@ private:
     int m_conn_stat_;
 
     EventLoop* m_loop_;
-    Socket* m_sock_;
-    Channel* m_channel_;
+    std::unique_ptr<Socket> m_sock_;
+    std::unique_ptr<Channel>  m_channel_;
 
     CONNECTION_CALLBACK_TYPE m_connection_callback_;
     MESSAGE_CALLBACK_TYPE m_message_callback_;

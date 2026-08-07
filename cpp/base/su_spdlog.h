@@ -77,39 +77,38 @@ public:
             logger->set_level(level);
         }
     }
-    std::shared_ptr<spdlog::logger> get_logger()
+    inline std::shared_ptr<spdlog::logger> get_logger()
     {
-        std::shared_ptr<spdlog::logger> logger = spdlog::get(kAsyncRotateLoggerName);
-        if (logger)
+        if (async_rotate_logger_)
         {
-            return logger;
+            return async_rotate_logger_;
         }
         return spdlog::default_logger();
     }
 
     void async_trace(const std::string& msg)
     {
-        LogString(spdlog::level::trace, msg);
+        LogString(async_rotate_logger_, spdlog::level::trace, msg);
     }
 
     void async_debug(const std::string& msg)
     {
-        LogString(spdlog::level::debug, msg);
+        LogString(async_rotate_logger_, spdlog::level::debug, msg);
     }
 
     void async_info(const std::string& msg)
     {
-        LogString(spdlog::level::info, msg);
+        LogString(async_rotate_logger_, spdlog::level::info, msg);
     }
 
     void async_warn(const std::string& msg)
     {
-        LogString(spdlog::level::warn, msg);
+        LogString(async_rotate_logger_, spdlog::level::warn, msg);
     }
 
     void async_error(const std::string& msg)
     {
-        LogString(spdlog::level::err, msg);
+        LogString(async_rotate_logger_, spdlog::level::err, msg);
     }
 
 private:
@@ -187,9 +186,8 @@ private:
         return logger;
     }
 
-    void LogString(spdlog::level::level_enum level, const std::string& msg)
+    inline void LogString(std::shared_ptr<spdlog::logger> logger, spdlog::level::level_enum level, const std::string& msg)
     {
-        std::shared_ptr<spdlog::logger> logger = get_logger();
         if (logger)
         {
             logger->log(level, "{}", msg);
