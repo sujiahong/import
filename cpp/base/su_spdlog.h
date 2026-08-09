@@ -32,7 +32,7 @@ private:
     std::shared_ptr<spdlog::logger> async_rotate_logger_ = nullptr;
     std::shared_ptr<spdlog::logger> spd_rotate_logger_ = nullptr;
     std::shared_ptr<spdlog::logger> spd_basic_logger_ = nullptr;
-private:
+public:
     SuSpdlog() = default;
     ~SuSpdlog() = default;
 public:
@@ -77,11 +77,20 @@ public:
             logger->set_level(level);
         }
     }
-    inline std::shared_ptr<spdlog::logger> get_logger()
+    inline std::shared_ptr<spdlog::logger> get_async_logger()
     {
         if (async_rotate_logger_)
         {
             return async_rotate_logger_;
+        }
+        return spdlog::default_logger();
+    }
+
+    inline std::shared_ptr<spdlog::logger> get_sync_logger()
+    {
+        if (spd_rotate_logger_)
+        {
+            return spd_rotate_logger_;
         }
         return spdlog::default_logger();
     }
@@ -110,7 +119,31 @@ public:
     {
         LogString(async_rotate_logger_, spdlog::level::err, msg);
     }
+public:
+    void trace(const std::string& msg)
+    {
+        LogString(spd_rotate_logger_, spdlog::level::trace, msg);
+    }
 
+    void debug(const std::string& msg)
+    {
+        LogString(spd_rotate_logger_, spdlog::level::debug, msg);
+    }
+
+    void info(const std::string& msg)
+    {
+        LogString(spd_rotate_logger_, spdlog::level::info, msg);
+    }
+
+    void warn(const std::string& msg)
+    {
+        LogString(spd_rotate_logger_, spdlog::level::warn, msg);
+    }
+
+    void error(const std::string& msg)
+    {
+        LogString(spd_rotate_logger_, spdlog::level::err, msg);
+    }
 private:
     static spdlog::level::level_enum ToLevel(const std::string& level)
     {
@@ -120,6 +153,14 @@ private:
             return spdlog::level::trace;
         }
         return spdlog_level;
+    }
+    static void SetLoggerLevel(const std::string& logger_name, spdlog::level::level_enum level)
+    {
+        std::shared_ptr<spdlog::logger> logger = spdlog::get(logger_name);
+        if (logger)
+        {
+            logger->set_level(level);
+        }
     }
 
     static std::string JoinPath(const std::string& path, const std::string& filename)
@@ -207,12 +248,18 @@ inline SuSpdlog& GetSuSpdlog()
 }
 
 } // namespace su
-
-#define SU_LOG_TRACE(...) SPDLOG_LOGGER_TRACE(::su::GetSuSpdlog().get_logger(), __VA_ARGS__)
-#define SU_LOG_DEBUG(...) SPDLOG_LOGGER_DEBUG(::su::GetSuSpdlog().get_logger(), __VA_ARGS__)
-#define SU_LOG_INFO(...) SPDLOG_LOGGER_INFO(::su::GetSuSpdlog().get_logger(), __VA_ARGS__)
-#define SU_LOG_WARN(...) SPDLOG_LOGGER_WARN(::su::GetSuSpdlog().get_logger(), __VA_ARGS__)
-#define SU_LOG_ERROR(...) SPDLOG_LOGGER_ERROR(::su::GetSuSpdlog().get_logger(), __VA_ARGS__)
-#define SU_LOG_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(::su::GetSuSpdlog().get_logger(), __VA_ARGS__)
-
+///异步
+#define SU_LOG_ATRACE(...) SPDLOG_LOGGER_TRACE(::su::GetSuSpdlog().get_async_logger(), __VA_ARGS__)
+#define SU_LOG_ADEBUG(...) SPDLOG_LOGGER_DEBUG(::su::GetSuSpdlog().get_async_logger(), __VA_ARGS__)
+#define SU_LOG_AINFO(...) SPDLOG_LOGGER_INFO(::su::GetSuSpdlog().get_async_logger(), __VA_ARGS__)
+#define SU_LOG_AWARN(...) SPDLOG_LOGGER_WARN(::su::GetSuSpdlog().get_async_logger(), __VA_ARGS__)
+#define SU_LOG_AERROR(...) SPDLOG_LOGGER_ERROR(::su::GetSuSpdlog().get_async_logger(), __VA_ARGS__)
+#define SU_LOG_ACritical(...) SPDLOG_LOGGER_CRITICAL(::su::GetSuSpdlog().get_async_logger(), __VA_ARGS__)
+///同步
+#define SU_LOG_TRACE(...) SPDLOG_LOGGER_TRACE(::su::GetSuSpdlog().get_sync_logger(), __VA_ARGS__)
+#define SU_LOG_DEBUG(...) SPDLOG_LOGGER_DEBUG(::su::GetSuSpdlog().get_sync_logger(), __VA_ARGS__)
+#define SU_LOG_INFO(...) SPDLOG_LOGGER_INFO(::su::GetSuSpdlog().get_sync_logger(), __VA_ARGS__)
+#define SU_LOG_WARN(...) SPDLOG_LOGGER_WARN(::su::GetSuSpdlog().get_sync_logger(), __VA_ARGS__)
+#define SU_LOG_ERROR(...) SPDLOG_LOGGER_ERROR(::su::GetSuSpdlog().get_sync_logger(), __VA_ARGS__)
+#define SU_LOG_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(::su::GetSuSpdlog().get_sync_logger(), __VA_ARGS__)
 #endif // SU_SPDLOG_H
