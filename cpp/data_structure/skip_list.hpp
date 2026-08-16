@@ -1,7 +1,7 @@
 #ifndef _SKIP_LIST_HPP_
 #define _SKIP_LIST_HPP_
 
-#include "../algorithm/ramdom_disorder.hpp"
+#include "../algorithm/random_disorder.hpp"
 #include <cstdio>
 #include <vector>
 
@@ -21,7 +21,7 @@ struct SkiplistNode
 int GetRandomLevel()
 {
     int lev = 1;
-    while((RangeRandom(1, 10000) & 1) == 0)
+    while((su::RangeRandom(1, 10000) & 1) == 0)
     {
         ++lev;
     }

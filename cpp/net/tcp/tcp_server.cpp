@@ -52,12 +52,18 @@ void TcpServer::NewConnection(int a_fd, const std::string& a_peer_ip, unsigned s
     conn->SetMessageCallback(m_message_callback_);
     conn->SetWriteCompleteCallback(m_write_complete_callback_);
     conn->SetCloseCallback(
-        std::bind(&TcpServer::RemoveConnection, this, std::placeholders::_1)); // FIXME: unsafe 数据线程调过来的
+        std::bind(&TcpServer::RemoveConnection, this, std::placeholders::_1));
+    ////连接建立（在 io 线程开启读监听）
+    ioloop->RunInLoop(std::bind(&Connection::ConnectionEstablished, conn));
 }
 
-void TcpServer::RemoveConnection(int a_fd)
+void TcpServer::RemoveConnection(const TCP_CONNECTION_PTR& a_conn)
 {
-    m_connections_.erase(a_fd);
+    if (!a_conn) return;
+    m_connections_.erase(a_conn->Fd());
+    ////延迟到事件循环末尾销毁，避免在 Channel 回调中析构自身（use-after-free）
+    a_conn->GetLoop()->QueueInLoop(
+        std::bind(&Connection::ConnectionDestroyed, a_conn));
 }
 
 void TcpServer::SetThreadNum(int a_num)

@@ -52,7 +52,7 @@ public:
     }
 private:
     void NewConnection(int a_fd, const std::string& a_peer_id, unsigned short a_peer_port);
-    void RemoveConnection(int a_fd);
+    void RemoveConnection(const TCP_CONNECTION_PTR& a_conn);
 };
 
 

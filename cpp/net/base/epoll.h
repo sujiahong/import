@@ -52,6 +52,7 @@ private:
     int m_epfd_;
     struct epoll_event m_event_arr_[MAX_EVENT_NUM];
     typedef std::map<int, Channel*> CHANNEL_MAP_TYPE;
+    CHANNEL_MAP_TYPE m_channels_;
 public:
     EPoll()
     {
@@ -103,11 +104,19 @@ public:
     void RemoveChannel(Channel* a_channel)
     {
         int fd = a_channel->Fd();
+        m_channels_.erase(fd);
         int ret = ::epoll_ctl(m_epfd_, EPOLL_CTL_DEL, fd, NULL);
         if (ret < 0)
         {
             //log
         }
+    }
+
+    bool hasChannel(Channel* a_channel)
+    {
+        int fd = a_channel->Fd();
+        CHANNEL_MAP_TYPE::iterator it = m_channels_.find(fd);
+        return it != m_channels_.end() && it->second == a_channel;
     }
 
     void UpdateChannel(Channel* a_channel)
@@ -133,6 +142,7 @@ public:
                 //log
                 return;
             }
+            m_channels_[fd] = a_channel;
             a_channel->SetInEpoll();
         }
     }

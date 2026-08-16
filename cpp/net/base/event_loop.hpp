@@ -10,8 +10,12 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <pthread.h>
 #include <assert.h>
+
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 #include "../../base/original_base.h"
 #include "../../toolbox/time_function.hpp"
@@ -27,79 +31,182 @@ class EventLoop: public Noncopyable
 private:
     std::atomic<bool> m_loop_;
     std::atomic<bool> m_quit_;
-    const unsigned int m_thread_id_;
+    const pthread_t m_thread_id_;
     std::vector<Channel*> m_active_channels_;
     bool m_event_handling_;
     Channel* m_cur_handle_channel_;
     EPoll* m_ep_;          ////////////epoll
-    
+
+    /////跨线程任务队列 + eventfd 唤醒
+    int m_wakeup_fd_;
+    std::unique_ptr<Channel> m_wakeup_channel_;
+    std::mutex m_mutex_;
+    std::vector<std::function<void()>> m_pending_functors_;
+    bool m_calling_pending_functors_;
+
 public:
-    EventLoop():
-        m_loop_(false),
-        m_quit_(false),
-        m_thread_id_(pthread_self())
+    EventLoop();
+    ~EventLoop();
+
+    void Loop();
+    void Quit();
+    bool IsInLoopThread();
+    void AssertInLoopThread();
+
+    void UpdateChannel(Channel* channel);
+    void RemoveChannel(Channel* channel);
+    bool hasChannel(Channel* channel);
+
+    /// @brief 若在当前 loop 线程则直接执行，否则入队等待
+    void RunInLoop(std::function<void()> cb);
+    /// @brief 入队，并唤醒 loop 线程执行（用于跨线程投递任务）
+    void QueueInLoop(std::function<void()> cb);
+private:
+    void Wakeup();
+    void HandleWakeup();
+    void DoPendingFunctors();
+};
+
+inline EventLoop::EventLoop():
+    m_loop_(false),
+    m_quit_(false),
+    m_thread_id_(pthread_self()),
+    m_event_handling_(false),
+    m_cur_handle_channel_(NULL),
+    m_calling_pending_functors_(false)
+{
+    m_active_channels_.clear();
+    m_ep_ = new EPoll();
+
+    ////eventfd 用于唤醒阻塞在 epoll_wait 上的 loop 线程
+    m_wakeup_fd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    assert(m_wakeup_fd_ > 0);
+    m_wakeup_channel_.reset(new Channel(this, m_wakeup_fd_));
+    m_wakeup_channel_->SetReadCallback(std::bind(&EventLoop::HandleWakeup, this));
+    m_wakeup_channel_->EnableRead();
+}
+
+inline EventLoop::~EventLoop()
+{
+    m_wakeup_channel_->DisableAll();
+    m_wakeup_channel_.reset();
+    ::close(m_wakeup_fd_);
+    delete m_ep_;
+    m_cur_handle_channel_ = NULL;
+}
+
+inline void EventLoop::Loop()
+{
+    assert(!m_loop_);
+    m_loop_ = true;
+    m_quit_ = false;
+    while (!m_quit_)
     {
         m_active_channels_.clear();
+        unsigned int rt_time = m_ep_->Poll(kPollTimeMs, m_active_channels_);
+        m_event_handling_ = true;
+        for (Channel* channel : m_active_channels_)
+        {
+            m_cur_handle_channel_ = channel;
+            m_cur_handle_channel_->HandleEvent(rt_time);
+        }
+        m_cur_handle_channel_ = NULL;
         m_event_handling_ = false;
-        m_cur_handle_channel_ = NULL;
-        m_ep_ = new EPoll();
-    }
-    ~EventLoop()
-    {
-        delete m_ep_;
-        m_cur_handle_channel_ = NULL;
-    }
-public:
-    void Loop()
-    {
-        assert(!m_loop_);
-        m_loop_ = true;
-        m_quit_ = false;
-        while (!m_quit_)
-        {
-            m_active_channels_.clear();
-            unsigned int rt_time = m_ep_->Poll(kPollTimeMs, m_active_channels_);
-            m_event_handling_ = true;
-            for (Channel* channel : m_active_channels_)
-            {
-                m_cur_handle_channel_ = channel;
-                m_cur_handle_channel_->HandleEvent(rt_time);
-            }
-            m_cur_handle_channel_ = NULL;
-            m_event_handling_ = false;
 
-        }
-        
+        ////处理跨线程投递的任务（此时已不在 Channel 回调栈中，可安全析构对象）
+        DoPendingFunctors();
     }
-    void Quit()
-    {
-        m_quit_ = true;
-    }
-    bool IsInLoopThread()
-    {
-        return (m_thread_id_ == pthread_self());
-    }
-    void AssertInLoopThread()
-    {}
+}
 
-    void UpdateChannel(Channel* channel)
+inline void EventLoop::Quit()
+{
+    m_quit_ = true;
+    if (!IsInLoopThread())
+        Wakeup();
+}
+
+inline bool EventLoop::IsInLoopThread()
+{
+    return (m_thread_id_ == pthread_self());
+}
+
+inline void EventLoop::AssertInLoopThread()
+{
+    assert(IsInLoopThread());
+}
+
+inline void EventLoop::UpdateChannel(Channel* channel)
+{
+    m_ep_->UpdateChannel(channel);
+}
+
+inline void EventLoop::RemoveChannel(Channel* channel)
+{
+    if (m_event_handling_)
     {
-        m_ep_->UpdateChannel(channel);
+        assert(m_cur_handle_channel_== channel 
+            || std::find(m_active_channels_.begin(), m_active_channels_.end(), channel) == m_active_channels_.end());
     }
-    void RemoveChannel(Channel* channel)
+    m_ep_->RemoveChannel(channel);
+}
+
+inline bool EventLoop::hasChannel(Channel* channel)
+{
+    return m_ep_->hasChannel(channel);
+}
+
+inline void EventLoop::RunInLoop(std::function<void()> cb)
+{
+    if (IsInLoopThread())
     {
-        if (m_event_handling_)
-        {
-            assert(m_cur_handle_channel_== channel 
-                || std::find(m_active_channels_.begin(), m_active_channels_.end(), channel) == m_active_channels_.end());
-        }
-        m_ep_->RemoveChannel(channel);
+        cb();
     }
-    bool hasChannel(Channel* channel)
+    else
     {
-        return m_ep_->hasChannel(channel);
+        QueueInLoop(std::move(cb));
     }
-};
+}
+
+inline void EventLoop::QueueInLoop(std::function<void()> cb)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex_);
+        m_pending_functors_.push_back(std::move(cb));
+    }
+    ////不在 loop 线程，或正在执行 pending functors 时，需要唤醒
+    if (!IsInLoopThread() || m_calling_pending_functors_)
+        Wakeup();
+}
+
+inline void EventLoop::Wakeup()
+{
+    uint64_t one = 1;
+    ssize_t n = ::write(m_wakeup_fd_, &one, sizeof(one));
+    (void)n;
+}
+
+inline void EventLoop::HandleWakeup()
+{
+    uint64_t one = 1;
+    ssize_t n = ::read(m_wakeup_fd_, &one, sizeof(one));
+    (void)n;
+    DoPendingFunctors();
+}
+
+inline void EventLoop::DoPendingFunctors()
+{
+    std::vector<std::function<void()>> functors;
+    m_calling_pending_functors_ = true;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex_);
+        functors.swap(m_pending_functors_);
+    }
+    for (auto& f : functors)
+    {
+        f();
+    }
+    m_calling_pending_functors_ = false;
+}
 
 // __thread EventLoop* t_loopInThisThread = NULL;
 

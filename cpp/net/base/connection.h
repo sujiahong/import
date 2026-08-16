@@ -7,9 +7,11 @@
 #define _CONNECTION_H_
 
 #include <string>
+#include <memory>
 
 #include "../../base/original_base.h"
 #include "base_define.h"
+#include "buffer.h"
 
 namespace su 
 {
@@ -37,6 +39,8 @@ private:
     EventLoop* m_loop_;
     std::unique_ptr<Socket> m_sock_;
     std::unique_ptr<Channel>  m_channel_;
+    Buffer m_input_buffer_;     ////读缓冲
+    Buffer m_output_buffer_;    ////写缓冲
 
     CONNECTION_CALLBACK_TYPE m_connection_callback_;
     MESSAGE_CALLBACK_TYPE m_message_callback_;
@@ -47,12 +51,14 @@ public:
     Connection(EventLoop* loop, 
         int a_fd, 
         const std::string& a_name, 
-        std::string& a_ip, unsigned short a_port, 
-        std::string& a_peer_ip, unsigned short a_peer_port);
+        const std::string& a_ip, unsigned short a_port, 
+        const std::string& a_peer_ip, unsigned short a_peer_port);
     ~Connection();
 public:
     int GetConnStat() const {return m_conn_stat_;}
     const std::string& GetName() const { return m_name_;}
+    int Fd() const;
+    EventLoop* GetLoop() const { return m_loop_; }
     void GetLocalIPAndPort(std::string& a_ip, unsigned short& a_port)
     {
         a_ip = m_ip_;

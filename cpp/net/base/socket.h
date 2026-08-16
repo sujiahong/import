@@ -45,7 +45,7 @@ public:
 private:
     static void PrintSystemError(const char* a_op, int a_err_no)
     {
-        SU_SYNC_LOG_ERROR("{} failed: errno={} ({})", a_op, a_err_no, strerror(a_err_no));
+        SU_LOG_ERROR("{} failed: errno={} ({})", a_op, a_err_no, strerror(a_err_no));
     }
 public:
     int Create(int a_sa_family, int a_type)
@@ -86,7 +86,7 @@ public:
             int inet_ret = inet_pton(AF_INET6, a_ip.c_str(), &addr6->sin6_addr);
             if (inet_ret == 0)
             {
-                SU_SYNC_LOG_WARN("inet_pton(AF_INET6) failed: invalid ip={}", a_ip);
+                SU_LOG_WARN("inet_pton(AF_INET6) failed: invalid ip={}", a_ip);
             }
             else if (inet_ret < 0)
             {
